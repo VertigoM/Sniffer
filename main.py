@@ -1,5 +1,8 @@
+from UI.ui import *
+
+
 def main():
-    pass
+    play()
 
 
 if __name__ == '__main__':
