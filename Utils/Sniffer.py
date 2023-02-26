@@ -25,7 +25,7 @@ class Sniffer(object):
         try:
             if self.process.is_alive():
                 return
-        except AttributeError as exception:
+        except AttributeError:
             pass
         self._setup_process()
         if self.process is not None:

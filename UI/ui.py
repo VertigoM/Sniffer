@@ -8,13 +8,17 @@ from PyQt5.QtWidgets import (
     QLabel,
     QGridLayout,
     QPushButton,
+    QTableWidget,
+    QAbstractScrollArea,
+    QTableWidgetItem
 )
 from PyQt5.QtCore import (
     QObject,
     QRunnable,
     pyqtSignal,
     pyqtSlot,
-    QThreadPool
+    QThreadPool,
+    QThread
 )
 from multiprocessing import (
     Process,
@@ -27,7 +31,40 @@ import sys
 import logging
 
 manager = Manager()
-managed_dictionary = manager.dict()
+shared = Shared()
+
+shared.managed_dictionary = manager.dict()
+shared.managed_packet_queue = manager.Queue()
+
+
+class Table(QTableWidget):
+    def new_event(self):
+        pass
+
+
+# ----- TODO: modify in order to fit proper usage ----
+class ProcessingThread(QThread):
+    add_packet = pyqtSignal(list)
+
+    def __init__(self, parent=None):
+        QThread.__init__(self, parent=parent)
+        self.isRunning = True
+
+    def run(self):
+        global shared
+        while self.isRunning:
+            try:
+                packet = shared.managed_packet_queue.get()
+            except Exception as _:
+                continue
+            print(packet, flush=True)
+            self.add_packet.emit(list())
+
+    def stop(self):
+        self.isRunning = False
+        self.quit()
+        self.wait()
+# ------------------------------------------------------
 
 
 class UIMainWindow(object):
@@ -51,8 +88,15 @@ class UIMainWindow(object):
         self.stop_button = None
         self.top_toolbar_layout = self.create_top_toolbar_layout()
 
+        self.packet_list_table = None
+        self.create_packet_list_table()
+
         self.outer_layout.addLayout(self.top_toolbar_layout)
         self.outer_layout.addLayout(self.top_hbox_layout)
+
+        # ----- TODO REMOVE -----
+        self.outer_layout.addWidget(self.packet_list_table)
+
         self.outer_layout.addStretch()
 
         self.__central_widget.setLayout(self.outer_layout)
@@ -63,6 +107,10 @@ class UIMainWindow(object):
         ''' #Add signal handling '''
 
         ''' !Add signal handling '''
+
+        self.processing_thread = ProcessingThread()
+        self.processing_thread.add_packet.connect(self.handle_packet)
+        self.processing_thread.start()
 
     def create_top_toolbar_layout(self) -> QGridLayout:
         grid_layout = QGridLayout()
@@ -108,6 +156,25 @@ class UIMainWindow(object):
 
         return hbox_layout
 
+    def create_packet_list_table(self) -> Table:
+        self.packet_list_table = Table()
+        self.packet_list_table.verticalHeader().setDefaultSectionSize(25)
+        self.packet_list_table.horizontalHeader().setFont(self.global_font)
+        self.packet_list_table.setSizeAdjustPolicy(
+            QAbstractScrollArea.AdjustToContents
+        )
+        self.packet_list_table.setMinimumHeight(50)
+        self.packet_list_table.setColumnCount(6)
+        [self.packet_list_table.setColumnWidth(i, 200) for i in range(6)]
+
+        # ----- TODO - remove -----
+        self.packet_list_table.insertRow(0)
+        for i in range(6):
+            item = QTableWidgetItem()
+            item.setText("DEBUG")
+            self.packet_list_table.setItem(0, i, item)
+        # ------------------------
+
     def populate(self, shared: Shared) -> None:
         self.combo_box.addItems(shared.interfaces)
 
@@ -115,16 +182,29 @@ class UIMainWindow(object):
         self.__main_widget.show()
 
     def interface_changed(self) -> None:
-        global managed_dictionary
-        managed_dictionary['iface'] = self.combo_box.currentText()
-        print(f"changed {managed_dictionary['iface']}")
+        global shared
+        shared.managed_dictionary['iface'] = self.combo_box.currentText()
+        print(f"changed {shared.managed_dictionary['iface']}")
 
     def start(self) -> None:
-        self.worker = Sniffer.Sniffer(prn=lambda t: t.summary(), iface=managed_dictionary.get('iface'))
+        global shared
+        self.worker = Sniffer.Sniffer(
+            prn=lambda p: shared.managed_packet_queue.put(p, block=True, timeout=0.2),
+            iface=shared.managed_dictionary.get('iface'))
         self.worker.start()
 
     def stop(self) -> None:
+        # TODO - remove
+        # quick and dirty
+        global shared
         self.worker.stop()
+        print('--- Started printing ---')
+        while not shared.managed_packet_queue.empty():
+            item = shared.managed_packet_queue.get(block=True, timeout=0.1)
+            print(item, flush=True)
+
+    def handle_packet(self, info) -> None:
+        print("called_handle_packet")
 
 
 def play():
@@ -135,11 +215,8 @@ def play():
     application = QApplication([])
     window = UIMainWindow()
 
-    shared = Shared()
+    global shared
     window.populate(shared)
-
-    manager = Manager()
-    packet_list = manager.Queue()
 
     window.show()
     print(f'--- {time() - start_time} seconds ---')

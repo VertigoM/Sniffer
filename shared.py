@@ -1,6 +1,8 @@
 from scapy.all import *
 
-class Shared():
+
+class Shared(object):
     def __init__(self):
         self.interfaces = ifaces
-        self.sniffed_interface = None
+        self.managed_dictionary = None
+        self.managed_packet_queue = None
