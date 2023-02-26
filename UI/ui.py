@@ -26,7 +26,9 @@ from multiprocessing import (
 )
 from PyQt5.QtGui import QFont
 from shared import Shared
-from Utils import Sniffer
+from Utils import (
+    Sniffer,
+    PacketUtilsWrapper)
 import sys
 import logging
 
@@ -57,8 +59,11 @@ class ProcessingThread(QThread):
                 packet = shared.managed_packet_queue.get()
             except Exception as _:
                 continue
-            print(packet, flush=True)
-            self.add_packet.emit(list())
+
+            # ---- TODO: remove or improve ----
+            w_p = PacketUtilsWrapper.PacketUtilsWrapper(packet)
+            # print(type(packet), flush=True)
+            self.add_packet.emit(w_p.info())
 
     def stop(self):
         self.isRunning = False
@@ -164,6 +169,7 @@ class UIMainWindow(object):
             QAbstractScrollArea.AdjustToContents
         )
         self.packet_list_table.setMinimumHeight(50)
+        self.packet_list_table.setMaximumHeight(300)
         self.packet_list_table.setColumnCount(6)
         [self.packet_list_table.setColumnWidth(i, 200) for i in range(6)]
 
@@ -204,7 +210,12 @@ class UIMainWindow(object):
             print(item, flush=True)
 
     def handle_packet(self, info) -> None:
-        print("called_handle_packet")
+        print(f"handle_packet::received_info:{info}")
+        self.packet_list_table.insertRow(0)
+        for idx, e in enumerate(info):
+            item = QTableWidgetItem()
+            item.setText(e)
+            self.packet_list_table.setItem(0, idx, item)
 
 
 def play():
