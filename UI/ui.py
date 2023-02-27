@@ -173,6 +173,17 @@ class UIMainWindow(object):
         self.packet_list_table.setColumnCount(6)
         [self.packet_list_table.setColumnWidth(i, 200) for i in range(6)]
 
+        self.packet_list_table.setHorizontalHeaderLabels(
+            [
+                'Time',
+                'Source address',
+                'Destination address',
+                'Length',
+                'Protocol',
+                'Info'
+            ]
+        )
+
         # ----- TODO - remove -----
         self.packet_list_table.insertRow(0)
         for i in range(6):
@@ -214,7 +225,7 @@ class UIMainWindow(object):
         self.packet_list_table.insertRow(0)
         for idx, e in enumerate(info):
             item = QTableWidgetItem()
-            item.setText(e)
+            item.setText(str(e))
             self.packet_list_table.setItem(0, idx, item)
 
 

@@ -3,35 +3,64 @@ from scapy.all import *
 
 class PacketUtilsWrapper(object):
     __slots__ = [
-        '_pkt',
+        'pkt',
         'ip_src',
         'ip_dst',
-        'tcp_sport',
-        'tcp_dport',
+        'sport',
+        'dport',
+        'time',
+        'protocol',
+        'length'
     ]
 
     def __init__(self,
-                 p: Packet):
-        self._pkt = p
+                 _pkt: Packet):
+        self.pkt = _pkt
 
-        self.tcp_sport = self.tcp_dport = None
-        self.ip_src = self.ip_dst = None
+        self.protocol = ''
 
-        if self._pkt.haslayer(TCP):
-            try:
-                tcp_layer = self._pkt.getlayer(TCP)
-                self.tcp_sport = tcp_layer.sport
-                self.tcp_dport = tcp_layer.dport
-            except:
-                pass
+        try:
+            # pkt has TCP layer
+            tcp_layer = self.pkt.getlayer(TCP)
 
-        if self._pkt.haslayer(IP):
-            try:
-                ip_layer = self._pkt.getlayer(IP)
-                self.ip_src = ip_layer.src
-                self.ip_dst = ip_layer.dst
-            except:
-                pass
+            self.sport = tcp_layer.sport
+            self.dport = tcp_layer.dport
 
-    def info(self):
-        return [self.ip_src, self.ip_dst, self.tcp_sport, self.tcp_dport]
+            self.protocol = 'TCP'
+        except:
+            pass
+
+        try:
+            # pkt has UDP layer
+            udp_layer = self.pkt.getlayer(UDP)
+
+            self.sport = udp_layer.sport
+            self.dport = udp_layer.dport
+
+            self.protocol = 'UDP'
+        except:
+            self.sport = self.dport = None
+
+        try:
+            ip_layer = self.pkt.getlayer(IP)
+            self.ip_src = ip_layer.src
+            self.ip_dst = ip_layer.dst
+        except:
+            self.ip_src = self.ip_dst = None
+
+        self.time = self.pkt.time
+        self.length = len(self.pkt)
+
+    def expand(self):
+        cnt = self.pkt
+        yield cnt.name, cnt.fields
+
+    def info(self) -> list:
+        # ----- TODO improve -----
+        time     = self.time
+        source   = f'{self.ip_src}:{self.sport}'
+        dest     = f'{self.ip_dst}:{self.dport}'
+        length   = self.length
+        protocol = self.protocol
+        info     = self.pkt.mysummary()
+        return [time, source, dest, length, protocol, info]
