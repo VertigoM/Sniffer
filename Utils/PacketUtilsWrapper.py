@@ -1,23 +1,25 @@
 from scapy.all import *
+from Utils import IANA_Loader
 
 
 class PacketUtilsWrapper(object):
     __slots__ = [
+        'identifier',
         'pkt',
         'ip_src',
         'ip_dst',
         'sport',
         'dport',
-        'time',
+        'time', #epoch time TODO - translate into relative time
         'protocol',
         'length'
     ]
 
     def __init__(self,
-                 _pkt: Packet):
+                 _pkt: Packet,
+                 _identifier: IANA_Loader.IANA_Loader):
+        self.identifier = _identifier
         self.pkt = _pkt
-
-        self.protocol = ''
 
         try:
             # pkt has TCP layer
@@ -25,8 +27,6 @@ class PacketUtilsWrapper(object):
 
             self.sport = tcp_layer.sport
             self.dport = tcp_layer.dport
-
-            self.protocol = 'TCP'
         except:
             pass
 
@@ -36,16 +36,21 @@ class PacketUtilsWrapper(object):
 
             self.sport = udp_layer.sport
             self.dport = udp_layer.dport
-
-            self.protocol = 'UDP'
         except:
             self.sport = self.dport = None
 
+        ip_layer = None
+        self.protocol = 'UNKNOWN'
         try:
             ip_layer = self.pkt.getlayer(IP)
+        except:
+            pass
+
+        if ip_layer is not None:
             self.ip_src = ip_layer.src
             self.ip_dst = ip_layer.dst
-        except:
+            self.protocol = self.identifier.get_protocol(ip_layer.proto)
+        else:
             self.ip_src = self.ip_dst = None
 
         self.time = self.pkt.time

@@ -28,9 +28,10 @@ from PyQt5.QtGui import QFont
 from shared import Shared
 from Utils import (
     Sniffer,
-    PacketUtilsWrapper)
+    PacketUtilsWrapper,
+    IANA_Loader
+)
 import sys
-import logging
 
 manager = Manager()
 shared = Shared()
@@ -38,6 +39,9 @@ shared = Shared()
 shared.managed_dictionary = manager.dict()
 shared.managed_packet_queue = manager.Queue()
 
+# should its dict be passes as managed object
+# instead of being coppied 
+identifier = IANA_Loader.IANA_Loader()
 
 class Table(QTableWidget):
     def new_event(self):
@@ -61,7 +65,7 @@ class ProcessingThread(QThread):
                 continue
 
             # ---- TODO: remove or improve ----
-            w_p = PacketUtilsWrapper.PacketUtilsWrapper(packet)
+            w_p = PacketUtilsWrapper.PacketUtilsWrapper(packet, identifier)
             # print(type(packet), flush=True)
             self.add_packet.emit(w_p.info())
 
@@ -232,7 +236,6 @@ class UIMainWindow(object):
 def play():
     ''' time the execution '''
     from time import time
-    start_time = time()
 
     application = QApplication([])
     window = UIMainWindow()
@@ -241,6 +244,6 @@ def play():
     window.populate(shared)
 
     window.show()
-    print(f'--- {time() - start_time} seconds ---')
+    #print(f'--- {time() - start_time} seconds ---')
 
     sys.exit(application.exec())

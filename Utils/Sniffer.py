@@ -1,6 +1,5 @@
 from scapy.all import *
 from multiprocessing import Process
-import logging
 
 
 class Sniffer(object):
