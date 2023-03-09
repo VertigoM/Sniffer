@@ -28,7 +28,7 @@ from PyQt5.QtGui import QFont
 from shared import Shared
 from Utils import (
     Sniffer,
-    PacketUtilsWrapper,
+    PacketUtils,
     IANA_Loader
 )
 import sys
@@ -40,6 +40,8 @@ shared = Shared()
 shared.managed_dictionary = manager.dict()
 shared.managed_packet_queue = manager.Queue()
 
+packet_record = []
+
 # should its dict be passes as managed object
 # instead of being coppied 
 identifier = IANA_Loader.IANA_Loader()
@@ -49,12 +51,13 @@ class Table(QTableWidget):
         pass
 
 
-# ----- TODO: modify in order to fit proper usage ----
 class ProcessingThread(QThread):
     add_packet = pyqtSignal(list)
 
     def __init__(self, parent=None):
         QThread.__init__(self, parent=parent)
+        
+        self.packet_processor = PacketUtils.PacketProcessor(identifier)
         self.isRunning = True
 
     def run(self):
@@ -65,16 +68,15 @@ class ProcessingThread(QThread):
             except Exception as _:
                 continue
 
-            # ---- TODO: remove or improve ----
-            w_p = PacketUtilsWrapper.PacketUtilsWrapper(packet, identifier)
-            # print(type(packet), flush=True)
-            self.add_packet.emit(w_p.info())
+            # Packet procesing in order to be printed in the GUI
+            # the wrapper may be transformed into a singleton
+            info = self.packet_processor.info(packet)
+            self.add_packet.emit(info)
 
     def stop(self):
         self.isRunning = False
         self.quit()
         self.wait()
-# ------------------------------------------------------
 
 
 class UIMainWindow(object):
@@ -238,6 +240,8 @@ def play():
     ''' time the execution '''
     from time import time
 
+    start_time = time()
+    
     application = QApplication([])
     window = UIMainWindow()
 
@@ -245,6 +249,7 @@ def play():
     window.populate(shared)
 
     window.show()
-    #print(f'--- {time() - start_time} seconds ---')
+    
+    print(f'--- {time() - start_time} seconds ---')
 
     sys.exit(application.exec())
