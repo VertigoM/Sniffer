@@ -10,21 +10,22 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QTableWidget,
     QAbstractScrollArea,
-    QTableWidgetItem
+    QTableWidgetItem,
+    QTabWidget,
+    QTreeView
 )
 from PyQt5.QtCore import (
-    QObject,
-    QRunnable,
     pyqtSignal,
     pyqtSlot,
-    QThreadPool,
-    QThread
+    QThread,
 )
 from multiprocessing import (
-    Process,
     Manager
 )
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import (
+    QFont,
+    QIcon
+)
 from shared import Shared
 from Utils import (
     Sniffer,
@@ -53,6 +54,7 @@ class Table(QTableWidget):
 
 class ProcessingThread(QThread):
     add_packet = pyqtSignal(list)
+    save       = pyqtSignal()
 
     def __init__(self, parent=None):
         QThread.__init__(self, parent=parent)
@@ -71,6 +73,8 @@ class ProcessingThread(QThread):
             # Packet procesing in order to be printed in the GUI
             # the wrapper may be transformed into a singleton
             info = self.packet_processor.info(packet)
+            
+            packet_record.append(packet)
             self.add_packet.emit(info)
 
     def stop(self):
@@ -84,7 +88,7 @@ class UIMainWindow(object):
         self.__main_widget = QWidget()
         self.__central_widget = self.__main_widget
 
-        self.__main_widget.resize(1200, 800)
+        self.__main_widget.setFixedSize(1200, 800)
 
         ''' #Define global font '''
         self.global_font = QFont('Consolas', 10)
@@ -99,12 +103,15 @@ class UIMainWindow(object):
         self.start_button = None
         self.stop_button = None
         self.top_toolbar_layout = self.create_top_toolbar_layout()
+        
+        self.bottom_layout = self.create_bottom_layout()
 
         self.packet_list_table = None
         self.create_packet_list_table()
 
         self.outer_layout.addLayout(self.top_toolbar_layout)
         self.outer_layout.addLayout(self.top_hbox_layout)
+        self.outer_layout.addLayout(self.bottom_layout)
 
         # ----- TODO REMOVE -----
         self.outer_layout.addWidget(self.packet_list_table)
@@ -125,25 +132,47 @@ class UIMainWindow(object):
         self.processing_thread.start()
 
     def create_top_toolbar_layout(self) -> QGridLayout:
-        grid_layout = QGridLayout()
+        layout = QHBoxLayout()
 
         ''' #Create components '''
-        self.start_button = QPushButton("Start")
-        self.start_button.setFont(self.global_font)
+        self.start_button = QPushButton(self.__central_widget)
+        self.start_button.setIcon(
+            QIcon('resources/icons/play.png')
+        )
+        self.start_button.setMaximumSize(50, 50)
+        self.start_button.resize(50, 50)
 
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.setFont(self.global_font)
-
+        self.stop_button = QPushButton(self.__central_widget)
+        self.stop_button.setIcon(
+            QIcon('resources/icons/stop.png')
+        )
+        self.stop_button.resize(50, 50)
+        self.stop_button.setMaximumSize(50, 50)
+        
+        self.save_button = QPushButton(self.__central_widget)
+        self.save_button.setIcon(
+            QIcon('resources/icons/save.png')
+        )
+        
+        self.load_button = QPushButton(self.__central_widget)
+        self.load_button.setIcon(
+            QIcon('resources/icons/load.png')
+        )
+        
         self.start_button.clicked.connect(self.start)
         self.stop_button.clicked.connect(self.stop)
         ''' !Create components '''
 
         ''' #Add components to layout '''
-        grid_layout.addWidget(self.start_button, 0, 0)
-        grid_layout.addWidget(self.stop_button, 0, 1)
+        layout.addWidget(self.start_button)
+        layout.addWidget(self.stop_button, 1)
+        layout.addWidget(QLabel('|'))
+        layout.addWidget(self.save_button, 2)
+        layout.addWidget(self.load_button, 3)
+        layout.insertSpacing(-1, 1200)
         ''' !Add components to layout '''
 
-        return grid_layout
+        return layout
 
     def create_top_horizontal_layout(self) -> QHBoxLayout:
         ''' #Create layout '''
@@ -151,11 +180,11 @@ class UIMainWindow(object):
         ''' !Create layout '''
 
         ''' #Create components '''
-        label_nic = QLabel()
+        label_nic = QLabel(self.__central_widget)
         label_nic.setFont(self.global_font)
         label_nic.setText("NIC")
 
-        self.combo_box = QComboBox()
+        self.combo_box = QComboBox(self.__central_widget)
         self.combo_box.setFont(self.global_font)
 
         self.combo_box.currentTextChanged.connect(self.interface_changed)
@@ -169,16 +198,20 @@ class UIMainWindow(object):
         return hbox_layout
 
     def create_packet_list_table(self) -> Table:
-        self.packet_list_table = Table()
+        self.packet_list_table = Table(self.__central_widget)
         self.packet_list_table.verticalHeader().setDefaultSectionSize(25)
         self.packet_list_table.horizontalHeader().setFont(self.global_font)
         self.packet_list_table.setSizeAdjustPolicy(
             QAbstractScrollArea.AdjustToContents
         )
-        self.packet_list_table.setMinimumHeight(50)
-        self.packet_list_table.setMaximumHeight(300)
+        self.packet_list_table.setMinimumHeight(450)
+        self.packet_list_table.setMaximumHeight(450)
+        self.packet_list_table.setAutoScroll(False)
+        
         self.packet_list_table.setColumnCount(6)
-        [self.packet_list_table.setColumnWidth(i, 200) for i in range(6)]
+        [self.packet_list_table.setColumnWidth(i, 175) for i in range(1, 5)]
+        self.packet_list_table.setColumnWidth(0, 50)
+        self.packet_list_table.setColumnWidth(5, 425)
 
         self.packet_list_table.setHorizontalHeaderLabels(
             [
@@ -191,14 +224,21 @@ class UIMainWindow(object):
             ]
         )
 
-        # ----- TODO - remove -----
-        self.packet_list_table.insertRow(0)
-        for i in range(6):
-            item = QTableWidgetItem()
-            item.setText("DEBUG")
-            self.packet_list_table.setItem(0, i, item)
-        # ------------------------
-
+    def create_bottom_layout(self):
+        layout = QVBoxLayout()
+        
+        self.tabWidget = QTabWidget()
+        self.tabWidget.addTab(
+            QTreeView(), "More"
+        )
+        
+        self.tabWidget.addTab(
+            QTreeView(), "Hexdump"
+        )
+        
+        layout.addWidget(self.tabWidget)
+        return layout
+    
     def populate(self, shared: Shared) -> None:
         self.combo_box.addItems(shared.interfaces)
 
@@ -218,17 +258,13 @@ class UIMainWindow(object):
         self.worker.start()
 
     def stop(self) -> None:
-        # TODO - remove
-        # quick and dirty
-        global shared
+        global packet_record
+        PacketUtils.PacketProcessor.write_pcap(packet_record)
+        packet_record = []
+        
         self.worker.stop()
-        print('--- Started printing ---')
-        while not shared.managed_packet_queue.empty():
-            item = shared.managed_packet_queue.get(block=True, timeout=0.1)
-            print(item, flush=True)
 
     def handle_packet(self, info) -> None:
-        print(f"handle_packet::received_info:{info}")
         self.packet_list_table.insertRow(0)
         for idx, e in enumerate(info):
             item = QTableWidgetItem()

@@ -1,4 +1,5 @@
 from scapy.all import *
+import datetime
 from Utils import IANA_Loader
 
 # list filtering using lambdas
@@ -69,6 +70,17 @@ class PacketProcessor(object):
             protocol = temp.name
             temp = temp.payload
         return protocol    
+    
+    @staticmethod
+    def write_pcap(packet_list, path: str = None) -> None:
+        if path is None:
+            current_date = datetime.datetime.now()
+            path = f'saves/pcap_{current_date.strftime("%d%m%Y-%H%M")}'
+        try:
+            wrpcap(path, packet_list)
+        except Exception as e:
+            # TODO - find proper way of error handling
+            print(f"Error while writing to file!::{str(e)}")
         
         
     def info(self, packet) -> list:
