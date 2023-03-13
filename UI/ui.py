@@ -12,12 +12,14 @@ from PyQt5.QtWidgets import (
     QAbstractScrollArea,
     QTableWidgetItem,
     QTabWidget,
-    QTreeView
+    QTreeView,
+    QTableView
 )
 from PyQt5.QtCore import (
     pyqtSignal,
     pyqtSlot,
     QThread,
+    QCoreApplication
 )
 from multiprocessing import (
     Manager
@@ -223,6 +225,30 @@ class UIMainWindow(object):
                 'Info'
             ]
         )
+        self.packet_list_table.setSelectionBehavior(QTableView.SelectRows)
+        self.packet_list_table.itemSelectionChanged.connect(self.selection_event)
+
+    def selection_event(self):
+        QCoreApplication.processEvents()
+        row = [item.row() for item in self.packet_list_table.selectedItems()][0]
+        
+        index = len(packet_record) - row - 1
+        
+        packet = None
+        try:
+            packet = packet_record[index]
+        except IndexError as error:
+            print(str(error))
+            
+        treeView = QTreeView()
+        treeView.setHeaderHidden(True)
+        treeView.setModel(PacketUtils.PacketProcessor.convert_packet_to_node(packet))
+            
+        self.tabWidget.addTab(
+            treeView,
+            "Structure"
+        )
+        print(f"idx: {index}\n{packet}")
 
     def create_bottom_layout(self):
         layout = QVBoxLayout()
@@ -236,8 +262,14 @@ class UIMainWindow(object):
             QTreeView(), "Hexdump"
         )
         
+        self.tabWidget.setTabsClosable(True)
+        self.tabWidget.tabCloseRequested.connect(self.remove_tab)
+        
         layout.addWidget(self.tabWidget)
         return layout
+    
+    def remove_tab(self):
+        self.tabWidget.removeTab(self.tabWidget.currentIndex())
     
     def populate(self, shared: Shared) -> None:
         self.combo_box.addItems(shared.interfaces)
@@ -252,6 +284,12 @@ class UIMainWindow(object):
 
     def start(self) -> None:
         global shared
+        
+        # clear old data
+        packet_record = []
+        self.packet_list_table.setRowCount(0)
+        
+        
         self.worker = Sniffer.Sniffer(
             prn=lambda p: shared.managed_packet_queue.put(p, block=True, timeout=0.2),
             iface=shared.managed_dictionary.get('iface'))
@@ -260,7 +298,6 @@ class UIMainWindow(object):
     def stop(self) -> None:
         global packet_record
         PacketUtils.PacketProcessor.write_pcap(packet_record)
-        packet_record = []
         
         self.worker.stop()
 

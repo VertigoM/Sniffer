@@ -1,4 +1,7 @@
 from scapy.all import *
+from PyQt5.QtWidgets import *
+from PyQt5.QtGui import *
+from PyQt5.QtCore import *
 import datetime
 from Utils import IANA_Loader
 
@@ -81,6 +84,28 @@ class PacketProcessor(object):
         except Exception as e:
             # TODO - find proper way of error handling
             print(f"Error while writing to file!::{str(e)}")
+            
+    @staticmethod
+    def convert_packet_to_node(packet: Packet, font: QFont = QFont('Consolas', 10)) -> QStandardItemModel:
+        tree_model = QStandardItemModel()
+        root = tree_model.invisibleRootItem()
+        
+        _t = packet
+        _parent_node = root
+        while _t.fields_desc:
+            _fields_node = QStandardItem()
+            _fields_node.setFont(QFont('Consolas', 10))
+            _fields_node.setText(_t.name)
+            for _f in _t.fields_desc:
+                _field = QStandardItem()
+                _field.setFont(QFont('Consolas', 10))
+                _field.setText(f"{_f.name}: {_t.getfieldval(_f.name)}")
+                _fields_node.appendRow(_field)
+                
+            _parent_node.appendRow(_fields_node)
+            _parent_node = _fields_node
+            _t = _t.payload
+        return tree_model
         
         
     def info(self, packet) -> list:
