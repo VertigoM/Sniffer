@@ -13,20 +13,25 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem,
     QTabWidget,
     QTreeView,
-    QTableView
+    QTableView,
+    QInputDialog,
+    QLineEdit,
+    QFileDialog
 )
 from PyQt5.QtCore import (
     pyqtSignal,
     pyqtSlot,
     QThread,
-    QCoreApplication
+    QCoreApplication,
+    Qt
 )
 from multiprocessing import (
     Manager
 )
 from PyQt5.QtGui import (
     QFont,
-    QIcon
+    QIcon,
+    QPalette
 )
 from shared import Shared
 from Utils import (
@@ -43,10 +48,12 @@ shared = Shared()
 shared.managed_dictionary = manager.dict()
 shared.managed_packet_queue = manager.Queue()
 
-packet_record = []
+filter_sequence = ""
+valid_filter = False
 
-# should its dict be passes as managed object
-# instead of being coppied 
+from scapy.plist import PacketList
+packet_record = PacketList()
+
 identifier = IANA_Loader.IANA_Loader()
 
 class Table(QTableWidget):
@@ -99,11 +106,8 @@ class UIMainWindow(object):
         ''' #Define layout'''
         self.outer_layout = QVBoxLayout(self.__central_widget)
 
-        self.combo_box = None
         self.top_hbox_layout = self.create_top_horizontal_layout()
 
-        self.start_button = None
-        self.stop_button = None
         self.top_toolbar_layout = self.create_top_toolbar_layout()
         
         self.bottom_layout = self.create_bottom_layout()
@@ -175,6 +179,7 @@ class UIMainWindow(object):
         ''' !Add components to layout '''
 
         return layout
+        
 
     def create_top_horizontal_layout(self) -> QHBoxLayout:
         ''' #Create layout '''
@@ -246,27 +251,72 @@ class UIMainWindow(object):
             
         self.tabWidget.addTab(
             treeView,
-            "Structure"
+            f"Str.{index}"
         )
         print(f"idx: {index}\n{packet}")
 
     def create_bottom_layout(self):
-        layout = QVBoxLayout()
+        outer_layout = QVBoxLayout()
+        innner_layout = QHBoxLayout()
         
         self.tabWidget = QTabWidget()
-        self.tabWidget.addTab(
-            QTreeView(), "More"
-        )
-        
-        self.tabWidget.addTab(
-            QTreeView(), "Hexdump"
-        )
         
         self.tabWidget.setTabsClosable(True)
         self.tabWidget.tabCloseRequested.connect(self.remove_tab)
         
-        layout.addWidget(self.tabWidget)
-        return layout
+        self.filtering_field = QLineEdit()
+        self.filtering_field.textChanged.connect(self.validate_filter)
+        
+        self.filter_button: QPushButton = QPushButton()
+        self.filter_button.setFlat(True)
+        self.filter_button.setIcon(
+            QIcon("resources/icons/filter.png")
+        )
+        self.filter_button.setMaximumSize(50, 50)
+        self.filter_button.resize(50, 50)
+        self.filter_button.clicked.connect(self.filter)
+        
+        innner_layout.addWidget(self.filtering_field)
+        innner_layout.addWidget(self.filter_button, 1)
+        
+        outer_layout.addLayout(innner_layout)
+        outer_layout.addWidget(self.tabWidget)
+        return outer_layout
+    
+    def validate_filter(self):
+        global filter_sequence
+        
+        from scapy.arch.common import compile_filter
+        from scapy.libs.structures import bpf_program
+        
+        filter = self.filtering_field.text()
+        
+        if filter == "":
+            self.filtering_field.setStyleSheet("""QLineEdit { background-color: white;}""")
+            
+            self.filter_button.setEnabled(True)
+            filter_sequence = ""
+            return
+        try:
+            if isinstance(compile_filter(filter), bpf_program):
+                filter_sequence = filter
+                
+                self.filter_button.setEnabled(True)
+                self.filtering_field.setStyleSheet("""QLineEdit { background-color: green;}""")
+        except:
+            self.filter_button.setEnabled(False)
+            self.filtering_field.setStyleSheet("""QLineEdit { background-color: red;}""")         
+    
+    def filter(self):
+        global packet_record
+        
+        filter: str = self.filtering_field.text()
+        # refilter sniffed packets
+        
+        from scapy.sendrecv import sniff
+        filtered_packets = sniff(offline=packet_record, filter=filter)
+        print(filtered_packets)
+        
     
     def remove_tab(self):
         self.tabWidget.removeTab(self.tabWidget.currentIndex())
@@ -286,7 +336,7 @@ class UIMainWindow(object):
         global shared
         
         # clear old data
-        packet_record = []
+        packet_record = PacketList()
         self.packet_list_table.setRowCount(0)
         
         
@@ -302,6 +352,7 @@ class UIMainWindow(object):
         self.worker.stop()
 
     def handle_packet(self, info) -> None:
+        # add packet info to table
         self.packet_list_table.insertRow(0)
         for idx, e in enumerate(info):
             item = QTableWidgetItem()
