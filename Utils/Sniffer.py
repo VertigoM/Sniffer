@@ -1,36 +1,59 @@
 from scapy.all import *
 from multiprocessing import Process
 
+logger = logging.getLogger('standard')
 
 class Sniffer(object):
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
-        self.process = None
+    # def __init__(self, *args, **kwargs):
+    #     self.args = args
+    #     self.kwargs = kwargs
+    #     self.process: Process = None
+    def __new__(cls):
+        if not hasattr(cls, 'instance'):
+            cls.instance = super(Sniffer, cls).__new__(cls)
+            cls.process: Process = None
+        return cls.instance
 
-    def _setup_process(self) -> None:
-        self.process = Process(
-            target=self._run,
-            args=self.args,
-            kwargs=self.kwargs,
-            name='sniffing_process'
+    """Setup wrapper over a multiprocessing Process which
+    can be started/stopped programatically via start & stop functions
+    """
+    @classmethod
+    def _setup_process(cls, **kwargs) -> None:
+        cls.process = Process(
+            target=cls._run,
+            kwargs=kwargs,
+            daemon=True
         )
-        self.process.daemon = True
 
-    def _run(self, *args, **kwargs):
-        sniff(*args, **kwargs)
+    def _run(**kwargs):
+        sniff(**kwargs)
 
-    def start(self):
+    @classmethod
+    def start(cls, **kwargs):
         try:
-            if self.process.is_alive():
+            if cls.process.is_alive():
+                logger.debug(f"Process already running: PID:{cls.process.pid}")
                 return
-        except AttributeError:
+            
+        except AttributeError as attributeError:
+            logger.error(f"Sniffer not set up yet:{attributeError}")
             pass
-        self._setup_process()
-        if self.process is not None:
-            self.process.start()
+        
+        logger.info("\tSetting up sniffer...")
+        cls._setup_process(**kwargs)
+        if cls.process is not None:
+            cls.process.start()
+            logger.debug(f"Started Sniffer process with PID: {cls.process.pid}")
 
-    def stop(self):
-        if self.process.is_alive():
-            self.process.terminate()
-        self.process.join()
+    @classmethod
+    def stop(cls):
+        if not cls.process:
+            return
+        if cls.process.is_alive():
+            logger.info("Stopping sniffer.")
+            cls.process.terminate()
+        cls.process.join()
+    
+    @staticmethod    
+    def get_offline_process(*args, **kwargs) -> PacketList:
+        return sniff(*args, **kwargs)

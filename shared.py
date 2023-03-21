@@ -6,3 +6,6 @@ class Shared(object):
         self.interfaces = ifaces
         self.managed_dictionary = None
         self.managed_packet_queue = None
+        
+        self.filter_sequence = ""
+        self.filter_isValid = False

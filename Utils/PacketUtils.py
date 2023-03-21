@@ -14,7 +14,7 @@ from Utils import IANA_Loader
 
 """ class used only for presentation purposes """
 class PacketProcessor(object):
-    def __init__(self, _identifier: IANA_Loader.IANA_Loader):
+    def __init__(self, _identifier: IANA_Loader.IANA_Loader=None):
         self.identifier = _identifier
     
     # Network layer
@@ -72,13 +72,15 @@ class PacketProcessor(object):
         while temp:
             protocol = temp.name
             temp = temp.payload
-        return protocol    
+            if any(bad_protocol in temp.payload for bad_protocol in ['Raw', 'Padding']):
+                return temp.name
+        return protocol
     
     @staticmethod
     def write_pcap(packet_list, path: str = None) -> None:
         if path is None:
             current_date = datetime.datetime.now()
-            path = f'saves/pcap_{current_date.strftime("%d%m%Y-%H%M")}'
+            path = f'saves/{current_date.strftime("%d%m%Y-%H%M")}.pcap'
         try:
             wrpcap(path, packet_list)
         except Exception as e:
