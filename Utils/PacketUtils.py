@@ -12,6 +12,8 @@ from Utils import IANA_Loader
 # if packet has ARP layer L3, L4 are not applicable
 # source and destination become MAC addresses
 
+logger = logging.getLogger('standard')
+
 """ class used only for presentation purposes """
 class PacketProcessor(object):
     def __init__(self, _identifier: IANA_Loader.IANA_Loader=None):
@@ -25,8 +27,8 @@ class PacketProcessor(object):
         
         _l3 = dict()
         try:
-            _l3['src'] = self.packet.payload.src
-            _l3['dst'] = self.packet.payload.dst
+            _l3['src'] = packet.getlayer(IP).src
+            _l3['dst'] = packet.getlayer(IP).dst
             
             return _l3
         except:
@@ -96,11 +98,11 @@ class PacketProcessor(object):
         _parent_node = root
         while _t.fields_desc:
             _fields_node = QStandardItem()
-            _fields_node.setFont(QFont('Consolas', 10))
+            _fields_node.setFont(font)
             _fields_node.setText(_t.name)
             for _f in _t.fields_desc:
                 _field = QStandardItem()
-                _field.setFont(QFont('Consolas', 10))
+                _field.setFont(font)
                 _field.setText(f"{_f.name}: {_t.getfieldval(_f.name)}")
                 _fields_node.appendRow(_field)
                 

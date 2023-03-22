@@ -1,9 +1,7 @@
 from time import sleep
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
-from multiprocessing import (
-    Manager
-)
+from threading import Thread
 from PyQt5.QtGui import (
     QFont,
     QIcon,
@@ -18,56 +16,46 @@ import logging
 
 logger = logging.getLogger('standard')
 
-manager = Manager()
-shared = Shared()
-
-shared.managed_dictionary = manager.dict()
-shared.managed_packet_queue = manager.Queue()
-
-from scapy.plist import PacketList
-packet_record = PacketList()
-
 class Table(QTableWidget):
     def new_event(self):
         pass
 
-
 class ProcessingThread(QThread):
     add_packet = pyqtSignal(list)
-    save       = pyqtSignal()
 
-    def __init__(self, _packet_processor: PacketUtils.PacketProcessor=None, _parent=None):
+    def __init__(
+        self,
+        _managed_queue,
+        _packet_processor: PacketUtils.PacketProcessor=None,
+        _parent=None):
         QThread.__init__(self, parent=_parent)
         
         if _packet_processor is None:
             self.packet_processor = PacketUtils.PacketProcessor()
             
         self.packet_processor = _packet_processor
+        self.managed_queue = _managed_queue
+        self.managed_list = []
         self.running = True
 
     def run(self):
         logger.info("starting ProcessingThread.")
-        global shared
         while self.running:
             try:
-                packet = shared.managed_packet_queue.get()
-            except Exception as _:
-                continue
-
+                packet = self.managed_queue.get()
+            except Exception as exception:
+                logger.error(str(exception))
+            
+            self.managed_list.append(packet)
             info = self.packet_processor.info(packet)
             
-            packet_record.append(packet)
             self.add_packet.emit(info)
-
-    def stop(self):
-        logger.info("stopping ProcessingThread")
-        self.isRunning = False
-        self.quit()
-        self.wait()
 
 
 class UIMainWindow(object):
     def __init__(self):
+        self.shared = Shared()
+        
         self.__main_widget = QWidget()
         self.__central_widget = self.__main_widget
 
@@ -103,7 +91,10 @@ class UIMainWindow(object):
         self.worker = None
 
         self.packet_processor = PacketUtils.PacketProcessor()
-        self.processing_thread = ProcessingThread(self.packet_processor)
+        self.processing_thread = ProcessingThread(
+            _packet_processor = self.packet_processor,
+            _managed_queue = self.shared.managed_packet_queue)
+
         self.processing_thread.add_packet.connect(self.handle_packet)
         self.processing_thread.start()
 
@@ -117,6 +108,7 @@ class UIMainWindow(object):
         )
         self.start_button.setMaximumSize(50, 50)
         self.start_button.resize(50, 50)
+        self.start_button.setFlat(True)
 
         self.stop_button = QPushButton(self.__central_widget)
         self.stop_button.setIcon(
@@ -124,22 +116,27 @@ class UIMainWindow(object):
         )
         self.stop_button.resize(50, 50)
         self.stop_button.setMaximumSize(50, 50)
+        self.stop_button.setFlat(True)
         
         self.save_button = QPushButton(self.__central_widget)
         self.save_button.setIcon(
             QIcon('resources/icons/save.png')
         )
         self.save_button.clicked.connect(self.save_file_to_fs)
+        self.save_button.setFlat(True)
         
         self.load_button = QPushButton(self.__central_widget)
         self.load_button.setIcon(
             QIcon('resources/icons/load.png')
         )
-        self.load_button.clicked.connect(self.load_file_in_memory)
+        self.load_button.clicked.connect(self.load_file)
+        self.load_button.setFlat(True)
         
         self.start_button.clicked.connect(self.start)
         self.stop_button.clicked.connect(self.stop)
         ''' !Create components '''
+        
+        self.toggle_locked: bool = False
 
         ''' #Add components to layout '''
         layout.addWidget(self.start_button)
@@ -152,7 +149,7 @@ class UIMainWindow(object):
 
         return layout
 
-    def load_file_in_memory(self):
+    def load_file(self) -> None:
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         files, _ = QFileDialog.getOpenFileNames(
@@ -162,7 +159,14 @@ class UIMainWindow(object):
             options=options)
         if files:
             logger.info(f"Loaded file[s] in memory: {files}")
-            self.filter(record=files)
+            self.load_file_in_memory(files)
+            
+    def load_file_in_memory(self, files: list) -> None:
+        packets = Sniffer.Sniffer.get_offline_process(offline=files, filter=None)
+        
+        logger.info(f"Loaded {len(packets)} packets.")
+        self.shared.packet_record = packets
+        self.display_packets(packets)      
             
     def save_file_to_fs(self):
         options = QFileDialog.Options()
@@ -174,8 +178,10 @@ class UIMainWindow(object):
             options=options)
         if fileName:
             try:
-                PacketUtils.PacketProcessor.write_pcap(packet_record, f"{fileName}.pcap")
-                logger.info(f"Saved file '{fileName}.pcap',{len(packet_record)},{sys.getsizeof(packet_record)}b to file system.")
+                PacketUtils.PacketProcessor.write_pcap(
+                    self.shared.packet_record,
+                    f"{fileName}.pcap")
+                logger.info(f"Saved file '{fileName}.pcap',{len(self.shared.packet_record)},{sys.getsizeof(self.shared.packet_record)}b to file system.")
             except Exception as exception:
                 logger.error(f"Met an exception while saving file to filesystem: {str(exception)}")
         
@@ -233,15 +239,18 @@ class UIMainWindow(object):
 
     def selection_event(self):
         QCoreApplication.processEvents()
+        
+        self.shared.extend(self.processing_thread.managed_list)
+        
         row = [item.row() for item in self.packet_list_table.selectedItems()][0]
         
-        index = len(packet_record) - row - 1
+        index = len(self.shared.packet_record) - row - 1
+        logger.info(f"Number of sniffed packets: Total: {len(self.shared.packet_record)}, {(self.shared.packet_record)}")
         
-        packet = None
         try:
-            packet = packet_record[index]
+            packet = self.shared.packet_record[index]
         except IndexError as error:
-            print(str(error))
+            logger.error(f"Selected packet: {index}\n\t{str(error)}")
             
         treeView = QTreeView()
         treeView.setHeaderHidden(True)
@@ -249,9 +258,9 @@ class UIMainWindow(object):
             
         self.tabWidget.addTab(
             treeView,
-            f"Str.{index}"
+            f"Str.{(self.tabWidget.count())}"
         )
-        print(f"idx: {index}\n{packet}")
+        logger.info(f"Selected packet: {index}\n{packet}")
 
     def create_bottom_layout(self):
         outer_layout = QVBoxLayout()
@@ -273,7 +282,7 @@ class UIMainWindow(object):
         )
         self.filter_button.setMaximumSize(50, 50)
         self.filter_button.resize(50, 50)
-        self.filter_button.clicked.connect(self.filter)
+        self.filter_button.clicked.connect(self.filter_offline)
         
         innner_layout.addWidget(self.filtering_field)
         innner_layout.addWidget(self.filter_button, 1)
@@ -283,8 +292,6 @@ class UIMainWindow(object):
         return outer_layout
     
     def validate_filter(self):
-        global shared
-        
         from scapy.arch.common import compile_filter
         from scapy.libs.structures import bpf_program
         
@@ -294,11 +301,11 @@ class UIMainWindow(object):
             self.filtering_field.setStyleSheet("""QLineEdit { background-color: white;}""")
             
             self.filter_button.setEnabled(True)
-            shared.filter_sequence = ""
+            self.shared.filter_sequence = ""
             return
         try:
             if isinstance(compile_filter(filter), bpf_program):
-                shared.filter_sequence = filter
+                self.shared.filter_sequence = filter
                 
                 self.filter_button.setEnabled(True)
                 self.filtering_field.setStyleSheet("""QLineEdit { background-color: #aeffae;}""")
@@ -306,56 +313,76 @@ class UIMainWindow(object):
             self.filter_button.setEnabled(False)
             self.filtering_field.setStyleSheet("""QLineEdit { background-color: #ffaeae;}""")         
     
-    def filter(self, record=None):
-        global packet_record
+    def filter_offline(self, record: str = None):
+        # global packet_record
         
-        filter: str = self.filtering_field.text()
-        if record is None:
-            record = packet_record
-            # refilter already sniffed packets
+        # filter: str = self.filtering_field.text()
+        # logger.info(f"Filter set: {filter}")
          
-        # fix this function    
-        filtered_packets = Sniffer.Sniffer.get_offline_process(offline=packet_record, filter=filter)
-        self.display_packets(filtered_packets)
+        # # fix this function
+        # if record is None:
+        #     record = packet_record    
+        # filtered_packets = Sniffer.Sniffer.get_offline_process(offline=record, filter=filter)
+        # self.display_packets(filtered_packets)
+        pass
+    
+    def toggle_lock(self):
+        self.toggle_locked = not self.toggle_locked
+        self.filter_button.setEnabled(not self.filter_button.isEnabled())
+        
+        if "#d3d3d3" in self.filtering_field.styleSheet():
+            self.filtering_field.setStyleSheet("""QLineEdit { background-color: #d3d3d3;}""")
+        else:
+            self.filtering_field.setStyleSheet("""QLineEdit { background-color: white;}""")
+            
+        self.filtering_field.setEnabled(not self.filtering_field.isEnabled())
+        
+        self.combo_box.setEnabled(not self.combo_box.isEnabled())
+        
+        self.start_button.setEnabled(not self.start_button.isEnabled())
+        self.load_button.setEnabled(not self.load_button.isEnabled())
+        self.save_button.setEnabled(not self.save_button.isEnabled())
+        
           
     def remove_tab(self):
         self.tabWidget.removeTab(self.tabWidget.currentIndex())
     
-    def populate(self, shared: Shared) -> None:
-        self.combo_box.addItems(shared.interfaces)
+    def populate(self) -> None:
+        self.combo_box.addItems(self.shared.interfaces)
 
     def show(self) -> None:
         self.__main_widget.show()
 
     def interface_changed(self) -> None:
-        global shared
-        shared.managed_dictionary['iface'] = self.combo_box.currentText()
-        print(f"changed {shared.managed_dictionary['iface']}")
-
-    def start(self) -> None:
-        global shared
-        global packet_record
+        self.shared.managed_dictionary['iface'] = self.combo_box.currentText()
         
+    def start(self) -> None:
         # clear old data
-        packet_record = PacketList()
+        self.shared.clear_packet_record()
         self.packet_list_table.setRowCount(0)
+        
+        filter: str = self.filtering_field.text()
         
         # Intialize a Sniffer instance 
         self.worker = Sniffer.Sniffer()
+        self.toggle_lock()
+        
         self.worker.start(
-            prn=lambda p: shared.managed_packet_queue.put(p, block=True, timeout=0.2),
-            iface=shared.managed_dictionary.get('iface'))
+            prn=lambda p: self.shared.managed_packet_queue.put(p, block=True, timeout=0.2),
+            iface=self.shared.managed_dictionary.get('iface'),
+            filter=filter)
 
     def stop(self) -> None:
-        global packet_record
-        PacketUtils.PacketProcessor.write_pcap(packet_record)
+        # PacketUtils.PacketProcessor.write_pcap(packet_record)
         
         try:
             self.worker.stop()
+            if self.toggle_locked == True:
+                self.toggle_lock()
         except AttributeError as exception:
             logger.error(f"Sniffer not yet initialized: {str(exception)}")
             
-    def display_packets(self, packet_list: PacketList) -> None:
+    def display_packets(self, packet_list) -> None:
         # clear old packets from the table Widget
         self.packet_list_table.setRowCount(0)
         
@@ -381,8 +408,7 @@ def play():
     application = QApplication([])
     window = UIMainWindow()
 
-    global shared
-    window.populate(shared)
+    window.populate()
 
     window.show()
     
