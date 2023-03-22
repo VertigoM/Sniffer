@@ -55,5 +55,7 @@ class Sniffer(object):
         cls.process.join()
     
     @staticmethod    
-    def get_offline_process(*args, **kwargs) -> PacketList:
-        return sniff(*args, **kwargs)
+    def get_offline_process(*args, **kwargs):
+        packets = sniff(*args, **kwargs, session=TCPSession)
+        sessions = packets.sessions()
+        return packets, sessions

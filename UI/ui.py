@@ -162,9 +162,15 @@ class UIMainWindow(object):
             self.load_file_in_memory(files)
             
     def load_file_in_memory(self, files: list) -> None:
-        packets = Sniffer.Sniffer.get_offline_process(offline=files, filter=None)
+        packets, sessions = Sniffer.Sniffer.get_offline_process(offline=files, filter=None)
+        
+        QCoreApplication.processEvents()
+        self.session_filtering_field.setVisible(True)
+        self.session_filtering_field.addItems(sessions)
         
         logger.info(f"Loaded {len(packets)} packets.")
+        logger.info(sessions)
+        
         self.shared.packet_record = packets
         self.display_packets(packets)      
             
@@ -273,7 +279,12 @@ class UIMainWindow(object):
         self.tabWidget.tabCloseRequested.connect(self.remove_tab)
         
         self.filtering_field = QLineEdit()
+        self.filtering_field.setPlaceholderText("BPF filter")
         self.filtering_field.textChanged.connect(self.validate_filter)
+        
+        self.session_filtering_field = QComboBox()
+        self.session_filtering_field.setFixedWidth(400)
+        self.session_filtering_field.setVisible(False)
         
         self.filter_button: QPushButton = QPushButton()
         self.filter_button.setFlat(True)
@@ -284,8 +295,9 @@ class UIMainWindow(object):
         self.filter_button.resize(50, 50)
         self.filter_button.clicked.connect(self.filter_offline)
         
-        innner_layout.addWidget(self.filtering_field)
-        innner_layout.addWidget(self.filter_button, 1)
+        innner_layout.addWidget(self.session_filtering_field)
+        innner_layout.addWidget(self.filtering_field, 1)
+        innner_layout.addWidget(self.filter_button, 2)
         
         outer_layout.addLayout(innner_layout)
         outer_layout.addWidget(self.tabWidget)
@@ -360,6 +372,7 @@ class UIMainWindow(object):
         # clear old data
         self.shared.clear_packet_record()
         self.packet_list_table.setRowCount(0)
+        self.session_filtering_field.setVisible(False)
         
         filter: str = self.filtering_field.text()
         
