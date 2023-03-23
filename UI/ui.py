@@ -13,6 +13,7 @@ from Utils import (
 )
 import sys
 import logging
+import errno
 
 logger = logging.getLogger('standard')
 
@@ -43,13 +44,14 @@ class ProcessingThread(QThread):
         while self.running:
             try:
                 packet = self.managed_queue.get()
-            except Exception as exception:
-                logger.error(str(exception))
-            
-            self.managed_list.append(packet)
-            info = self.packet_processor.info(packet)
-            
-            self.add_packet.emit(info)
+                self.managed_list.append(packet)
+                info = self.packet_processor.info(packet)
+                
+                self.add_packet.emit(info)
+            except IOError as exception:
+                if exception.errno == errno.EPIPE:
+                    logger.error(f"ProcesssingThread::IOError{str(exception)}")
+                continue
 
 
 class UIMainWindow(object):
@@ -166,11 +168,11 @@ class UIMainWindow(object):
         
         QCoreApplication.processEvents()
         self.session_filtering_field.setVisible(True)
+        self.filter_button.setVisible(True)
         self.session_filtering_field.addItems(sessions)
+        self.filtering_field.setText("")
         
         logger.info(f"Loaded {len(packets)} packets.")
-        logger.info(sessions)
-        
         self.shared.packet_record = packets
         self.display_packets(packets)      
             
@@ -184,6 +186,9 @@ class UIMainWindow(object):
             options=options)
         if fileName:
             try:
+                QCoreApplication.processEvents()
+                self.shared.extend(self.processing_thread.managed_list)
+                
                 PacketUtils.PacketProcessor.write_pcap(
                     self.shared.packet_record,
                     f"{fileName}.pcap")
@@ -244,15 +249,11 @@ class UIMainWindow(object):
         self.packet_list_table.itemSelectionChanged.connect(self.selection_event)
 
     def selection_event(self):
-        QCoreApplication.processEvents()
-        
+        QCoreApplication.processEvents()        
         self.shared.extend(self.processing_thread.managed_list)
         
         row = [item.row() for item in self.packet_list_table.selectedItems()][0]
-        
         index = len(self.shared.packet_record) - row - 1
-        logger.info(f"Number of sniffed packets: Total: {len(self.shared.packet_record)}, {(self.shared.packet_record)}")
-        
         try:
             packet = self.shared.packet_record[index]
         except IndexError as error:
@@ -293,6 +294,7 @@ class UIMainWindow(object):
         )
         self.filter_button.setMaximumSize(50, 50)
         self.filter_button.resize(50, 50)
+        self.filter_button.setVisible(False)
         self.filter_button.clicked.connect(self.filter_offline)
         
         innner_layout.addWidget(self.session_filtering_field)
@@ -314,29 +316,46 @@ class UIMainWindow(object):
             
             self.filter_button.setEnabled(True)
             self.shared.filter_sequence = ""
+            self.shared.filter_isValid = True
+            self.start_button.setEnabled(True)
+             
             return
         try:
             if isinstance(compile_filter(filter), bpf_program):
                 self.shared.filter_sequence = filter
+                self.shared.filter_isValid = True
+                self.start_button.setEnabled(True)
                 
                 self.filter_button.setEnabled(True)
                 self.filtering_field.setStyleSheet("""QLineEdit { background-color: #aeffae;}""")
         except:
             self.filter_button.setEnabled(False)
+            self.shared.filter_isValid = False
+            self.start_button.setEnabled(False)
+            
             self.filtering_field.setStyleSheet("""QLineEdit { background-color: #ffaeae;}""")         
     
-    def filter_offline(self, record: str = None):
-        # global packet_record
+    def filter_offline(self):
+        self.shared.sync_capture_lists()
+        # Filter already sniffed packets
+        filter: str = ""
+        if self.shared.filter_isValid:
+            filter: str = self.filtering_field.text()
         
-        # filter: str = self.filtering_field.text()
-        # logger.info(f"Filter set: {filter}")
-         
-        # # fix this function
-        # if record is None:
-        #     record = packet_record    
-        # filtered_packets = Sniffer.Sniffer.get_offline_process(offline=record, filter=filter)
-        # self.display_packets(filtered_packets)
-        pass
+        logger.info(self.shared.packet_record)
+        
+        # All the loaded packets are located under shared.packet_record
+        # Copy packets to shared.packet_record_buffer
+        
+        self.shared.packet_record_buffer = self.shared.packet_record
+        
+        # Filter packets and copy them to packet record
+        offline_sniffer = Sniffer.Sniffer()
+        self.shared.packet_record_filtered, _ = offline_sniffer.get_offline_process(
+            offline=self.shared.packet_record_buffer,
+            filter=filter)
+        self.display_packets(self.shared.packet_record_filtered)
+        
     
     def toggle_lock(self):
         self.toggle_locked = not self.toggle_locked
@@ -374,7 +393,11 @@ class UIMainWindow(object):
         self.packet_list_table.setRowCount(0)
         self.session_filtering_field.setVisible(False)
         
-        filter: str = self.filtering_field.text()
+        filter = ""
+        if self.shared.filter_isValid:
+            filter: str = self.filtering_field.text()
+            
+        logger.info(f"Started sniffing with filter: {filter}")
         
         # Intialize a Sniffer instance 
         self.worker = Sniffer.Sniffer()
