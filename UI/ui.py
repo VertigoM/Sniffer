@@ -50,8 +50,10 @@ class ProcessingThread(QThread):
                 self.add_packet.emit(info)
             except IOError as exception:
                 if exception.errno == errno.EPIPE:
-                    logger.error(f"ProcesssingThread::IOError{str(exception)}")
+                    logger.error(f"ProcesssingThread::IOError:\n{str(exception)}")
                 continue
+            except EOFError as exception:
+                logger.error(f"ProcessingThread::EOFError:\n{str(exception)}")
 
 
 class UIMainWindow(object):
@@ -91,14 +93,11 @@ class UIMainWindow(object):
         ''' !Define layout'''
 
         self.worker = None
-
         self.packet_processor = PacketUtils.PacketProcessor()
-        self.processing_thread = ProcessingThread(
-            _packet_processor = self.packet_processor,
-            _managed_queue = self.shared.managed_packet_queue)
-
-        self.processing_thread.add_packet.connect(self.handle_packet)
-        self.processing_thread.start()
+        
+        self.processing_thread = None
+        
+        self.live_sniffing = False
 
     def create_top_toolbar_layout(self) -> QGridLayout:
         layout = QHBoxLayout()
@@ -161,9 +160,11 @@ class UIMainWindow(object):
             options=options)
         if files:
             logger.info(f"Loaded file[s] in memory: {files}")
+            
+            self.shared.buffered_filename = files
             self.load_file_in_memory(files)
             
-    def load_file_in_memory(self, files: list) -> None:
+    def load_file_in_memory(self, files: list) -> None:        
         packets, sessions = Sniffer.Sniffer.get_offline_process(offline=files, filter=None)
         
         QCoreApplication.processEvents()
@@ -173,7 +174,8 @@ class UIMainWindow(object):
         self.filtering_field.setText("")
         
         logger.info(f"Loaded {len(packets)} packets.")
-        self.shared.packet_record = packets
+        
+        self.shared.sync_shared(packets)
         self.display_packets(packets)      
             
     def save_file_to_fs(self):
@@ -187,7 +189,7 @@ class UIMainWindow(object):
         if fileName:
             try:
                 QCoreApplication.processEvents()
-                self.shared.extend(self.processing_thread.managed_list)
+                self.shared.sync_shared(self.processing_thread.managed_list)
                 
                 PacketUtils.PacketProcessor.write_pcap(
                     self.shared.packet_record,
@@ -249,25 +251,47 @@ class UIMainWindow(object):
         self.packet_list_table.itemSelectionChanged.connect(self.selection_event)
 
     def selection_event(self):
-        QCoreApplication.processEvents()        
-        self.shared.extend(self.processing_thread.managed_list)
+        QCoreApplication.processEvents()
         
-        row = [item.row() for item in self.packet_list_table.selectedItems()][0]
-        index = len(self.shared.packet_record) - row - 1
+        select_from = None
+        if self.live_sniffing:
+            _l0 = len(self.processing_thread.managed_list)
+            _l1 = len(self.shared.packet_record)
+            logger.info(f"Syncing:\n\tprocessing_thread.managed_list: {_l0} packets" +
+                        f"\n\tshared.packet_record: {_l1} packets" + 
+                        f'\n\t{_l0 - _l1} packets added.')
+            self.shared.sync_shared(self.processing_thread.managed_list)
+            select_from = self.shared.packet_record
+        else:
+            select_from = self.shared.packet_record_filtered
+        
+        row = 0
         try:
-            packet = self.shared.packet_record[index]
+            row = [item.row() for item in self.packet_list_table.selectedItems()][0]
+        except IndexError as exception:
+            logger.error(f"Selected:{self.packet_list_table.selectedItems()}\n\t{str(exception)}")
+            return
+        
+        index = len(select_from) - row - 1
+        
+        packet = None
+        try:
+            packet = select_from[index]
         except IndexError as error:
             logger.error(f"Selected packet: {index}\n\t{str(error)}")
             
         treeView = QTreeView()
-        treeView.setHeaderHidden(True)
-        treeView.setModel(PacketUtils.PacketProcessor.convert_packet_to_node(packet))
-            
-        self.tabWidget.addTab(
-            treeView,
-            f"Str.{(self.tabWidget.count())}"
-        )
-        logger.info(f"Selected packet: {index}\n{packet}")
+        try:
+            treeView.setHeaderHidden(True)
+            treeView.setModel(PacketUtils.PacketProcessor.convert_packet_to_node(packet))
+                
+            self.tabWidget.addTab(
+                treeView,
+                f"Str.{(self.tabWidget.count())}"
+            )
+        except Exception as error:
+            logger.error(f"Selection event::{str(error)}")
+        logger.info(f"Selected packet: {index}\n\t{packet}")
 
     def create_bottom_layout(self):
         outer_layout = QVBoxLayout()
@@ -336,6 +360,7 @@ class UIMainWindow(object):
             self.filtering_field.setStyleSheet("""QLineEdit { background-color: #ffaeae;}""")         
     
     def filter_offline(self):
+        QCoreApplication.processEvents()
         self.shared.sync_capture_lists()
         # Filter already sniffed packets
         filter: str = ""
@@ -352,7 +377,7 @@ class UIMainWindow(object):
         # Filter packets and copy them to packet record
         offline_sniffer = Sniffer.Sniffer()
         self.shared.packet_record_filtered, _ = offline_sniffer.get_offline_process(
-            offline=self.shared.packet_record_buffer,
+            offline=self.shared.buffered_filename,
             filter=filter)
         self.display_packets(self.shared.packet_record_filtered)
         
@@ -389,9 +414,10 @@ class UIMainWindow(object):
         
     def start(self) -> None:
         # clear old data
-        self.shared.clear_packet_record()
+        self.shared.reset_packet_records()
         self.packet_list_table.setRowCount(0)
         self.session_filtering_field.setVisible(False)
+        self.live_sniffing = True
         
         filter = ""
         if self.shared.filter_isValid:
@@ -403,6 +429,15 @@ class UIMainWindow(object):
         self.worker = Sniffer.Sniffer()
         self.toggle_lock()
         
+        self.processing_thread = ProcessingThread(
+            _packet_processor = self.packet_processor,
+            _managed_queue = self.shared.managed_packet_queue)
+        
+        logger.info(f"Created a new processing thread instance: {id(self.processing_thread)}")
+
+        self.processing_thread.add_packet.connect(self.handle_packet)
+        self.processing_thread.start()
+        
         self.worker.start(
             prn=lambda p: self.shared.managed_packet_queue.put(p, block=True, timeout=0.2),
             iface=self.shared.managed_dictionary.get('iface'),
@@ -410,6 +445,12 @@ class UIMainWindow(object):
 
     def stop(self) -> None:
         # PacketUtils.PacketProcessor.write_pcap(packet_record)
+        
+        # sync
+        self.shared.sync_shared(self.processing_thread.managed_list)
+        self.live_sniffing = False
+        
+        self.processing_thread.isRunning = False
         
         try:
             self.worker.stop()

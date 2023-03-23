@@ -18,29 +18,24 @@ class Shared(object):
             cls.filter_isValid = True
             
             cls.packet_record           = PacketList()
-            cls.packet_record_buffer    = PacketList()
-            # displayed packets
             cls.packet_record_filtered  = PacketList()
+            
+            cls.buffered_filename = None
         return cls.instance
-    
-    @classmethod
-    def clear_packet_record(cls):
-        cls.packet_record = PacketList()
         
     @classmethod
     def sync_capture_lists(cls):
-        cls.packet_record_buffer    = PacketList([packet for packet in cls.packet_record])
+        #cls.packet_record_buffer    = PacketList([packet for packet in cls.packet_record])
         cls.packet_record_filtered  = PacketList([packet for packet in cls.packet_record])
         
         logger.info(f"Synced lists:\n\t\tpacket_record: %s" % id(cls.packet_record) + \
-                    f"\n\t\tpacket_record_buffer: %s" % id(cls.packet_record_buffer) + \
                     f"\n\t\tpacket_record_filtered: %s" % id(cls.packet_record_filtered))
         
     @classmethod
-    def sync_displayed(cls):
-        # Pass refference
-        cls.packet_record_filtered = cls.packet_record
+    def sync_shared(cls, packet_list: list):
+       cls.packet_record = PacketList([packet for packet in packet_list])
         
     @classmethod
-    def extend(cls, _list: list):
-        cls.packet_record.extend(_list)
+    def reset_packet_records(cls):
+        cls.packet_record           = PacketList()
+        cls.packet_record_filtered  = PacketList()

@@ -55,9 +55,7 @@ class Sniffer(object):
         cls.process.join()
     
     @staticmethod    
-    def get_offline_process(*args, **kwargs):
-        from scapy.layers import http
-        
-        packets = sniff(*args, **kwargs, session=TCPSession)
+    def get_offline_process(offline, filter):
+        packets = sniff(offline=offline, filter=filter, session=TCPSession)
         sessions = packets.sessions()
         return packets, sessions
