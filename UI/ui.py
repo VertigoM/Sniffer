@@ -5,6 +5,7 @@ from threading import Thread
 from PyQt5.QtGui import (
     QFont,
     QIcon,
+    QCursor
 )
 from shared import Shared
 from Utils import (
@@ -55,6 +56,17 @@ class ProcessingThread(QThread):
             except EOFError as exception:
                 logger.error(f"ProcessingThread::EOFError:\n{str(exception)}")
 
+class ExternalWindow(object):
+    def __init__(self):
+        super().__init__()
+        self.main_widget = QWidget()
+        self.main_widget.setFixedSize(800, 600)
+        
+        self.layout = QVBoxLayout(self.main_widget)
+        self.main_widget.setLayout(self.layout)
+        
+    def show(self) -> None:
+        self.main_widget.show()
 
 class UIMainWindow(object):
     def __init__(self):
@@ -64,6 +76,7 @@ class UIMainWindow(object):
         self.__central_widget = self.__main_widget
 
         self.__main_widget.setFixedSize(1200, 800)
+        self.external_window = None
 
         ''' #Define global font '''
         self.global_font = QFont('Consolas', 10)
@@ -172,11 +185,31 @@ class UIMainWindow(object):
         self.filter_button.setVisible(True)
         self.session_filtering_field.addItems(sessions)
         self.filtering_field.setText("")
+        self.packet_list_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.packet_list_table.customContextMenuRequested.connect(self.handle_packet_list_packet_pressed)
         
         logger.info(f"Loaded {len(packets)} packets.")
         
         self.shared.sync_shared(packets)
         self.display_packets(packets)      
+        
+    def handle_packet_list_packet_pressed(self, _index: int) -> None:
+        menu = QMenu()
+        
+        _details = QAction("Details")
+        _details.triggered.connect(lambda t: print("Handle::triggered::details"))
+        menu.addAction(_details)
+        
+        _extract_content = QAction("Extract content")
+        _extract_content.triggered.connect(lambda t: print("Handle::triggered::extract_content"))
+        menu.addAction(_extract_content)
+        
+        _repeat = QAction("Repeat")
+        _repeat.triggered.connect(self.pop_external_window__forger)
+        menu.addAction(_repeat)
+        
+        c_pos = QCursor.pos()
+        menu.exec_(c_pos)
             
     def save_file_to_fs(self):
         options = QFileDialog.Options()
@@ -309,7 +342,10 @@ class UIMainWindow(object):
         
         self.session_filtering_field = QComboBox()
         self.session_filtering_field.setFixedWidth(400)
+        self.session_filtering_field.setStyleSheet("QComboBox { combobox-popup: 0; }");
+        self.session_filtering_field.setMaxVisibleItems(20)
         self.session_filtering_field.setVisible(False)
+        self.session_filtering_field.view().pressed.connect(self.handle_filtering_field_item_pressed)
         
         self.filter_button: QPushButton = QPushButton()
         self.filter_button.setFlat(True)
@@ -328,6 +364,39 @@ class UIMainWindow(object):
         outer_layout.addLayout(innner_layout)
         outer_layout.addWidget(self.tabWidget)
         return outer_layout
+    
+    def handle_filtering_field_item_pressed(self, _index: int) -> None:
+        item = self.session_filtering_field.model().itemFromIndex(_index)
+        
+        menu = QMenu()
+        
+        _details = QAction("Details")
+        _details.triggered.connect(lambda t: print("Handle::triggered::details"))
+        menu.addAction(_details)
+        
+        _extract_content = QAction("Extract content")
+        _extract_content.triggered.connect(lambda t: print("Handle::triggered::extract_content"))
+        menu.addAction(_extract_content)
+        
+        _repeat = QAction("Repeat")
+        _repeat.triggered.connect(self.pop_external_window__forger)
+        menu.addAction(_repeat)
+        
+        c_pos = QCursor.pos()
+        menu.exec_(c_pos)
+        
+    def pop_external_window__forger(self) -> None:
+        try:
+            self.external_window.close()
+            self.external_window = None
+        except AttributeError as error:
+            logger.debug("External window")
+        
+        self.external_window = ExternalWindow()
+        self.external_window.show()
+        
+    def pop_dialog__details(self) -> None:
+        dialog = QDialog()
     
     def validate_filter(self):
         from scapy.arch.common import compile_filter
@@ -385,6 +454,7 @@ class UIMainWindow(object):
     def toggle_lock(self):
         self.toggle_locked = not self.toggle_locked
         self.filter_button.setEnabled(not self.filter_button.isEnabled())
+        self.packet_list_table.setContextMenuPolicy(Qt.DefaultContextMenu)
         
         if "#d3d3d3" in self.filtering_field.styleSheet():
             self.filtering_field.setStyleSheet("""QLineEdit { background-color: #d3d3d3;}""")
