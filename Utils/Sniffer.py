@@ -12,6 +12,8 @@ class Sniffer(object):
         if not hasattr(cls, 'instance'):
             cls.instance = super(Sniffer, cls).__new__(cls)
             cls.process: Process = None
+            
+            cls.M_MAC = Ether().src
         return cls.instance
 
     """Setup wrapper over a multiprocessing Process which
@@ -55,7 +57,7 @@ class Sniffer(object):
         cls.process.join()
     
     @staticmethod    
-    def get_offline_process(offline, filter):
-        packets = sniff(offline=offline, filter=filter, session=TCPSession)
+    def get_offline_process(offline, **kwargs):
+        packets = sniff(offline=offline, **kwargs, session=TCPSession)
         sessions = packets.sessions()
         return packets, sessions

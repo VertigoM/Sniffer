@@ -18,6 +18,7 @@ logger = logging.getLogger('standard')
 class PacketProcessor(object):
     def __init__(self, _identifier: IANA_Loader.IANA_Loader=None):
         self.identifier = _identifier
+        self.M_MAC      = Ether().src 
     
     # Network layer
     def _solve_l3(self, packet: Packet) -> dict:
@@ -25,10 +26,21 @@ class PacketProcessor(object):
         if len(packet.layers()) < 2:
             return dict()
         
+        # Try get IPv4 src // dst
         _l3 = dict()
         try:
             _l3['src'] = packet.getlayer(IP).src
             _l3['dst'] = packet.getlayer(IP).dst
+            
+            return _l3
+        except:
+            # AttributeError
+            pass
+        
+        # Try get IPv6 src // dst
+        try:
+            _l3['src'] = packet.getlayer(IPv6).src
+            _l3['dst'] = packet.getlayer(IPv6).dst
             
             return _l3
         except:
@@ -110,7 +122,15 @@ class PacketProcessor(object):
             _parent_node = _fields_node
             _t = _t.payload
         return tree_model
-        
+    
+    def get_traffic_outgoing(self) -> Any:
+        return lambda packet: packet[Ether].src == self.M_MAC
+    
+    def get_traffic_ingoing(self) -> Any:
+        return lambda packet: packet[Ether].src != self.M_MAC
+    
+    def check_outgoing(self, packet) -> bool:
+        return packet[Ether].src == self.M_MAC
         
     def info(self, packet) -> list:
         # ------- Check data-link layer -------

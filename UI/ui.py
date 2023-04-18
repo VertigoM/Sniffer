@@ -1,7 +1,6 @@
 from time import sleep
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
-from threading import Thread
 from PyQt5.QtGui import (
     QFont,
     QIcon,
@@ -67,7 +66,7 @@ class ExternalWindow(object):
         
     def show(self) -> None:
         self.main_widget.show()
-
+        
 class UIMainWindow(object):
     def __init__(self):
         self.shared = Shared()
@@ -167,7 +166,7 @@ class UIMainWindow(object):
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         files, _ = QFileDialog.getOpenFileNames(
-            caption="QFileDialog.getOpenFileNames()", 
+            caption="Load .pcap file", 
             directory="./saves",
             filter="All Files (*);;Packet Capture Files (*.pcap)", 
             options=options)
@@ -183,6 +182,8 @@ class UIMainWindow(object):
         QCoreApplication.processEvents()
         self.session_filtering_field.setVisible(True)
         self.filter_button.setVisible(True)
+        self.filter_button__outgoing_traffic.setVisible(True)
+        self.filter_button__ingoing_traffic.setVisible(True)
         self.session_filtering_field.addItems(sessions)
         self.filtering_field.setText("")
         self.packet_list_table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -193,20 +194,31 @@ class UIMainWindow(object):
         self.shared.sync_shared(packets)
         self.display_packets(packets)      
         
-    def handle_packet_list_packet_pressed(self, _index: int) -> None:
-        menu = QMenu()
+    def handle_packet_list_packet_pressed(self) -> None:
+        menu    = QMenu()
+        packet  = None
+        
+        try:
+            packet = self.selection_event()
+        except Exception as exception:
+            self.pop_error_dialog(str(exception))
+            
+        if packet is None:
+            return
         
         _details = QAction("Details")
-        _details.triggered.connect(lambda t: print("Handle::triggered::details"))
+        _details.triggered.connect(lambda: self.create_tree_view(
+            self.selection_event()
+        ))
         menu.addAction(_details)
-        
-        _extract_content = QAction("Extract content")
-        _extract_content.triggered.connect(lambda t: print("Handle::triggered::extract_content"))
-        menu.addAction(_extract_content)
-        
+
         _repeat = QAction("Repeat")
         _repeat.triggered.connect(self.pop_external_window__forger)
         menu.addAction(_repeat)
+        
+        if not self.packet_processor.check_outgoing(packet):
+            _repeat.setEnabled(False)
+            _repeat.setText("Repeat - only outgoing traffic can be repeated")
         
         c_pos = QCursor.pos()
         menu.exec_(c_pos)
@@ -215,7 +227,7 @@ class UIMainWindow(object):
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
         fileName, _ = QFileDialog.getSaveFileName(
-            caption="QFileDialog.getSaveFileName()",
+            caption="Save .pcap file",
             directory="./saves",
             filter="All Files (*);;",
             options=options)
@@ -281,7 +293,7 @@ class UIMainWindow(object):
             ]
         )
         self.packet_list_table.setSelectionBehavior(QTableView.SelectRows)
-        self.packet_list_table.itemSelectionChanged.connect(self.selection_event)
+        #self.packet_list_table.itemSelectionChanged.connect(self.selection_event)
 
     def selection_event(self):
         QCoreApplication.processEvents()
@@ -312,7 +324,12 @@ class UIMainWindow(object):
             packet = select_from[index]
         except IndexError as error:
             logger.error(f"Selected packet: {index}\n\t{str(error)}")
+        
+        logger.info(f"Selected packet: {index}\n\t{packet}")
+        return packet
             
+    def create_tree_view(self, packet):
+        
         treeView = QTreeView()
         try:
             treeView.setHeaderHidden(True)
@@ -324,11 +341,12 @@ class UIMainWindow(object):
             )
         except Exception as error:
             logger.error(f"Selection event::{str(error)}")
-        logger.info(f"Selected packet: {index}\n\t{packet}")
+        # logger.info(f"Selected packet: {index}\n\t{packet}")
 
     def create_bottom_layout(self):
         outer_layout = QVBoxLayout()
-        innner_layout = QHBoxLayout()
+        innner_layout__1 = QHBoxLayout()
+        innner_layout__2 = QHBoxLayout()
         
         self.tabWidget = QTabWidget()
         self.tabWidget.setFixedHeight(200)
@@ -357,11 +375,35 @@ class UIMainWindow(object):
         self.filter_button.setVisible(False)
         self.filter_button.clicked.connect(self.filter_offline)
         
-        innner_layout.addWidget(self.session_filtering_field)
-        innner_layout.addWidget(self.filtering_field, 1)
-        innner_layout.addWidget(self.filter_button, 2)
+        self.filter_button__outgoing_traffic: QPushButton = QPushButton()
+        self.filter_button__ingoing_traffic: QPushButton  = QPushButton()
         
-        outer_layout.addLayout(innner_layout)
+        self.filter_button__outgoing_traffic.setMaximumSize(200, 50)
+        self.filter_button__outgoing_traffic.resize(200, 50)
+        self.filter_button__outgoing_traffic.setText("Filter outgoing traffic")
+        self.filter_button__outgoing_traffic.clicked.connect(lambda: self.filter_offline(
+            lfilter=self.packet_processor.get_traffic_outgoing()
+        ))
+        self.filter_button__outgoing_traffic.setVisible(False)
+        
+        self.filter_button__ingoing_traffic.setMaximumSize(200, 50)
+        self.filter_button__ingoing_traffic.resize(200, 50)
+        self.filter_button__ingoing_traffic.setText("Filter ingoing traffic")
+        self.filter_button__ingoing_traffic.clicked.connect(lambda: self.filter_offline(
+            lfilter=self.packet_processor.get_traffic_ingoing()
+        ))
+        self.filter_button__ingoing_traffic.setVisible(False)
+        
+        innner_layout__1.addWidget(self.session_filtering_field, 0)
+        innner_layout__1.addWidget(self.filtering_field, 1)
+        innner_layout__1.addWidget(self.filter_button, 2)
+        
+        innner_layout__2.addWidget(self.filter_button__outgoing_traffic, 0)
+        innner_layout__2.addWidget(self.filter_button__ingoing_traffic, 1)
+        innner_layout__2.insertSpacing(-1, 800)
+        
+        outer_layout.addLayout(innner_layout__1)
+        outer_layout.addLayout(innner_layout__2)
         outer_layout.addWidget(self.tabWidget)
         return outer_layout
     
@@ -393,6 +435,7 @@ class UIMainWindow(object):
             logger.debug("External window")
         
         self.external_window = ExternalWindow()
+        self.external_window.main_widget.setWindowTitle("Repeater")
         self.external_window.show()
         
     def pop_dialog__details(self) -> None:
@@ -428,7 +471,8 @@ class UIMainWindow(object):
             
             self.filtering_field.setStyleSheet("""QLineEdit { background-color: #ffaeae;}""")         
     
-    def filter_offline(self):
+    def filter_offline(self, lfilter=None):
+        from scapy.error import Scapy_Exception
         QCoreApplication.processEvents()
         self.shared.sync_capture_lists()
         # Filter already sniffed packets
@@ -445,11 +489,15 @@ class UIMainWindow(object):
         
         # Filter packets and copy them to packet record
         offline_sniffer = Sniffer.Sniffer()
-        self.shared.packet_record_filtered, _ = offline_sniffer.get_offline_process(
+        try:
+            self.shared.packet_record_filtered, _ = offline_sniffer.get_offline_process(
             offline=self.shared.buffered_filename,
-            filter=filter)
+            filter=filter,
+            lfilter=lfilter)
+        except Scapy_Exception as exception:
+            self.pop_error_dialog(f"ERROR:{str(exception)}\nFor more details see logs")
+            return
         self.display_packets(self.shared.packet_record_filtered)
-        
     
     def toggle_lock(self):
         self.toggle_locked = not self.toggle_locked
@@ -468,7 +516,6 @@ class UIMainWindow(object):
         self.start_button.setEnabled(not self.start_button.isEnabled())
         self.load_button.setEnabled(not self.load_button.isEnabled())
         self.save_button.setEnabled(not self.save_button.isEnabled())
-        
           
     def remove_tab(self):
         self.tabWidget.removeTab(self.tabWidget.currentIndex())
@@ -487,6 +534,8 @@ class UIMainWindow(object):
         self.shared.reset_packet_records()
         self.packet_list_table.setRowCount(0)
         self.session_filtering_field.setVisible(False)
+        self.filter_button__outgoing_traffic.setVisible(False)
+        self.filter_button__ingoing_traffic.setVisible(False)
         self.live_sniffing = True
         
         filter = ""
@@ -544,6 +593,19 @@ class UIMainWindow(object):
             item = QTableWidgetItem()
             item.setText(str(e))
             self.packet_list_table.setItem(0, index, item)
+        
+    def pop_error_dialog(self, exception_text: str) -> None:
+        dlg = QDialog()
+        
+        QBtn = QDialogButtonBox.Ok
+        dlg.setWindowTitle("Oops!")
+        
+        dlg.layout = QVBoxLayout()
+        err_mesg   = QLabel(exception_text)
+        dlg.layout.addWidget(err_mesg)
+        dlg.setLayout(dlg.layout)
+        
+        dlg.exec_()
 
 
 def play():
