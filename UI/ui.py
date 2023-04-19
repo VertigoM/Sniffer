@@ -431,10 +431,6 @@ class UIMainWindow(object):
         _extract_content.triggered.connect(lambda t: print("Handle::triggered::extract_content"))
         menu.addAction(_extract_content)
         
-        _repeat = QAction("Repeat")
-        #_repeat.triggered.connect(self.pop_external_window__forger)
-        menu.addAction(_repeat)
-        
         c_pos = QCursor.pos()
         menu.exec_(c_pos)
         
@@ -705,7 +701,7 @@ class UIMainWindow(object):
         QBtn = QDialogButtonBox.Ok | QDialogButtonBox.Cancel
         button_box = QDialogButtonBox(QBtn)
         
-        message = QLabel("Max frame dimension - 65545 - exceeded\nDo you want to save packet content to a file?\n\nNote: The payload will be saved to a separate file.")
+        message = QLabel("Max frame dimension - 65535 - exceeded\nDo you want to save packet content to a file?\n\nNote: The payload will be saved to a separate file.")
 
         button_box.accepted.connect(lambda: self.pop_error_dialog__frame_exceeded_accepted(packet, dlg))
         button_box.rejected.connect(lambda: dlg.close())
@@ -718,14 +714,7 @@ class UIMainWindow(object):
         dlg.exec_()
         
     def pop_error_dialog__frame_exceeded_accepted(self, packet, parent: QDialog) -> None:
-        with open("dump.bin", "wb") as handler:
-            handler.write(packet.show(dump=True).encode("utf-8"))
-            
-            payload = self.packet_processor.get_raw_payload(packet)
-                
-            if payload is not None:
-                with open("dump_load.bin", "wb") as bin_handler:
-                    bin_handler.write(payload)
+        PacketUtils.PacketProcessor.write_packet_payload_to_file(packet)
         try:
             parent.close()
         except Exception as error:

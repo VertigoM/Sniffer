@@ -102,6 +102,17 @@ class PacketProcessor(object):
             print(f"Error while writing to file!::{str(e)}")
             
     @staticmethod
+    def write_packet_payload_to_file(packet):
+        with open("dump.bin", "wb") as handler:
+            handler.write(packet.show(dump=True).encode("utf-8"))
+            
+            payload = PacketProcessor.get_raw_payload(packet)
+                
+            if payload is not None:
+                with open("dump_load.bin", "wb") as bin_handler:
+                    bin_handler.write(payload)    
+            
+    @staticmethod
     def convert_packet_to_node(packet: Packet, font: QFont = QFont('Consolas', 10)) -> QStandardItemModel:
         tree_model = QStandardItemModel()
         root = tree_model.invisibleRootItem()
@@ -176,6 +187,6 @@ class PacketProcessor(object):
         try:
             length   = len(packet)
         except:
-            length   = "Max frame dimension - 65545 - exceeded"
+            length   = "Max frame dimension - 65535 - exceeded"
         info     = packet.mysummary()
         return [time, source, dst, length, protocol, info]
