@@ -121,6 +121,7 @@ class PacketProcessor(object):
             _parent_node.appendRow(_fields_node)
             _parent_node = _fields_node
             _t = _t.payload
+        
         return tree_model
     
     def get_traffic_outgoing(self) -> Any:
@@ -128,6 +129,18 @@ class PacketProcessor(object):
     
     def get_traffic_ingoing(self) -> Any:
         return lambda packet: packet[Ether].src != self.M_MAC
+    
+    @staticmethod
+    def get_raw_payload(packet) -> bytearray:
+        payload = None
+        try:
+            payload = packet[Raw].load
+        except AttributeError as _:
+            return None
+        except IndexError as _:
+            return None
+        
+        return payload
     
     def check_outgoing(self, packet) -> bool:
         return packet[Ether].src == self.M_MAC
@@ -160,6 +173,9 @@ class PacketProcessor(object):
         
         source   = l3.get("src") + _sport
         dst      = l3.get("dst") + _dport
-        length   = len(packet)
+        try:
+            length   = len(packet)
+        except:
+            length   = "Max frame dimension - 65545 - exceeded"
         info     = packet.mysummary()
         return [time, source, dst, length, protocol, info]

@@ -59,10 +59,13 @@ class ExternalWindow(object):
     def __init__(self):
         super().__init__()
         self.main_widget = QWidget()
-        self.main_widget.setFixedSize(800, 600)
         
         self.layout = QVBoxLayout(self.main_widget)
         self.main_widget.setLayout(self.layout)
+        
+    def set_custom_layout(self, _layout):
+        self.layout.parent = None
+        self.main_widget.setLayout = _layout
         
     def show(self) -> None:
         self.main_widget.show()
@@ -176,7 +179,7 @@ class UIMainWindow(object):
             self.shared.buffered_filename = files
             self.load_file_in_memory(files)
             
-    def load_file_in_memory(self, files: list) -> None:        
+    def load_file_in_memory(self, files: list) -> None:      
         packets, sessions = Sniffer.Sniffer.get_offline_process(offline=files, filter=None)
         
         QCoreApplication.processEvents()
@@ -207,13 +210,15 @@ class UIMainWindow(object):
             return
         
         _details = QAction("Details")
-        _details.triggered.connect(lambda: self.create_tree_view(
-            self.selection_event()
-        ))
+        _details.triggered.connect(lambda: self.create_tree_view(packet))
         menu.addAction(_details)
+        
+        _raw = QAction("Raw")
+        _raw.triggered.connect(lambda: self.pop_external_window__raw(packet))
+        menu.addAction(_raw)
 
         _repeat = QAction("Repeat")
-        _repeat.triggered.connect(self.pop_external_window__forger)
+        _repeat.triggered.connect(lambda: self.pop_external_window__forger(packet))
         menu.addAction(_repeat)
         
         if not self.packet_processor.check_outgoing(packet):
@@ -293,6 +298,7 @@ class UIMainWindow(object):
             ]
         )
         self.packet_list_table.setSelectionBehavior(QTableView.SelectRows)
+        self.packet_list_table.setEditTriggers(QTableWidget.NoEditTriggers)
         #self.packet_list_table.itemSelectionChanged.connect(self.selection_event)
 
     def selection_event(self):
@@ -345,14 +351,17 @@ class UIMainWindow(object):
 
     def create_bottom_layout(self):
         outer_layout = QVBoxLayout()
-        innner_layout__1 = QHBoxLayout()
-        innner_layout__2 = QHBoxLayout()
+        inner_layout__1 = QHBoxLayout()
+        inner_layout__2 = QHBoxLayout()
+        inner_layout__3 = QHBoxLayout()
         
         self.tabWidget = QTabWidget()
         self.tabWidget.setFixedHeight(200)
         
         self.tabWidget.setTabsClosable(True)
         self.tabWidget.tabCloseRequested.connect(self.remove_tab)
+        
+        inner_layout__3.addWidget(self.tabWidget)
         
         self.filtering_field = QLineEdit()
         self.filtering_field.setPlaceholderText("BPF filter")
@@ -381,6 +390,7 @@ class UIMainWindow(object):
         self.filter_button__outgoing_traffic.setMaximumSize(200, 50)
         self.filter_button__outgoing_traffic.resize(200, 50)
         self.filter_button__outgoing_traffic.setText("Filter outgoing traffic")
+        self.filter_button__outgoing_traffic.setFont(self.global_font)
         self.filter_button__outgoing_traffic.clicked.connect(lambda: self.filter_offline(
             lfilter=self.packet_processor.get_traffic_outgoing()
         ))
@@ -388,23 +398,24 @@ class UIMainWindow(object):
         
         self.filter_button__ingoing_traffic.setMaximumSize(200, 50)
         self.filter_button__ingoing_traffic.resize(200, 50)
+        self.filter_button__ingoing_traffic.setFont(self.global_font)
         self.filter_button__ingoing_traffic.setText("Filter ingoing traffic")
         self.filter_button__ingoing_traffic.clicked.connect(lambda: self.filter_offline(
             lfilter=self.packet_processor.get_traffic_ingoing()
         ))
         self.filter_button__ingoing_traffic.setVisible(False)
         
-        innner_layout__1.addWidget(self.session_filtering_field, 0)
-        innner_layout__1.addWidget(self.filtering_field, 1)
-        innner_layout__1.addWidget(self.filter_button, 2)
+        inner_layout__1.addWidget(self.session_filtering_field, 0)
+        inner_layout__1.addWidget(self.filtering_field, 1)
+        inner_layout__1.addWidget(self.filter_button, 2)
         
-        innner_layout__2.addWidget(self.filter_button__outgoing_traffic, 0)
-        innner_layout__2.addWidget(self.filter_button__ingoing_traffic, 1)
-        innner_layout__2.insertSpacing(-1, 800)
+        inner_layout__2.addWidget(self.filter_button__outgoing_traffic, 0)
+        inner_layout__2.addWidget(self.filter_button__ingoing_traffic, 1)
+        inner_layout__2.insertSpacing(-1, 800)
         
-        outer_layout.addLayout(innner_layout__1)
-        outer_layout.addLayout(innner_layout__2)
-        outer_layout.addWidget(self.tabWidget)
+        outer_layout.addLayout(inner_layout__1)
+        outer_layout.addLayout(inner_layout__2)
+        outer_layout.addLayout(inner_layout__3)
         return outer_layout
     
     def handle_filtering_field_item_pressed(self, _index: int) -> None:
@@ -421,21 +432,102 @@ class UIMainWindow(object):
         menu.addAction(_extract_content)
         
         _repeat = QAction("Repeat")
-        _repeat.triggered.connect(self.pop_external_window__forger)
+        #_repeat.triggered.connect(self.pop_external_window__forger)
         menu.addAction(_repeat)
         
         c_pos = QCursor.pos()
         menu.exec_(c_pos)
         
-    def pop_external_window__forger(self) -> None:
+    def pop_external_window__forger(self, packet) -> None:
         try:
             self.external_window.close()
             self.external_window = None
         except AttributeError as error:
-            logger.debug("External window")
+            logger.debug(f"external_window::forger {str(error)}")
+        
+        self.external_window = QWidget()
+        self.external_window.setFixedSize(1000, 800)
+        self.external_window.setWindowTitle("Repeater")
+        
+        inner_layout__1 = QGridLayout()
+        
+        editable_field_widget = QTextEdit()
+        editable_field_widget.setFont(self.global_font)
+        editable_field_widget.setText(packet.show(dump=True))
+        
+        try:
+            print(packet.fields_desc)
+        except Exception as exception:
+            self.pop_error_dialog(str(exception))
+        
+        _request_label = QLabel("Request")
+        _request_label.setFont(self.global_font)
+        inner_layout__1.addWidget(_request_label, 1, 0, 1, 1)
+        
+        _response_label = QLabel("Response")
+        _response_label.setFont(self.global_font)
+        inner_layout__1.addWidget(_response_label, 1, 3, 1, 1)
+        
+        inner_layout__1.addWidget(QPushButton("Send"), 0, 3, 1, 2)
+        
+        inner_layout__1.addWidget(editable_field_widget, 2, 0, -1, 2)
+        inner_layout__1.addWidget(QTextEdit(), 2, 3, -1, 2)
+        
+        self.external_window.setLayout(inner_layout__1)
+        self.external_window.show()
+        
+    def pop_external_window__raw(self, packet) -> None:
+        try:
+            self.external_window.close()
+            self.external_window = None
+        except AttributeError as error:
+            logger.debug(f"external_window::raw {str(error)}")
+        
+        from struct import error as error_struct
+        from scapy.error import Scapy_Exception
         
         self.external_window = ExternalWindow()
-        self.external_window.main_widget.setWindowTitle("Repeater")
+        self.external_window.main_widget = QTabWidget()
+        self.external_window.main_widget.setFixedSize(800, 600)
+        self.external_window.main_widget.setWindowTitle("Raw")
+        
+        _dump_packet__plain = None
+        try:
+            _dump_packet__plain = packet.show(dump=True)
+        except error_struct as error:
+            self.pop_error_dialog__frame_exceeded(packet)
+            logger.error(str(error))
+        except Scapy_Exception as error:
+            logger.error(str(error))
+            self.pop_error_dialog(str(error))
+            
+        if _dump_packet__plain is None:
+            return
+            
+        from scapy.utils import hexdump
+        
+        _dump_packet__hex = None
+        try:
+            _dump_packet__hex = hexdump(packet, dump=True)
+        except error_struct as error:
+            self.pop_error_dialog__frame_exceeded(packet)
+            logger.error(str(error))
+        except Scapy_Exception as error:
+            logger.error(str(error))
+            self.pop_error_dialog(str(error))
+            
+        if _dump_packet__hex is None:
+            return
+        
+        _raw_widget = QTextBrowser()
+        _raw_widget.setText(_dump_packet__plain)
+        _raw_widget.setFont(self.global_font)
+        self.external_window.main_widget.addTab(_raw_widget, "Raw View")
+        
+        _hex_widget = QTextBrowser()
+        _hex_widget.setText(_dump_packet__hex)
+        _hex_widget.setFont(self.global_font)
+        self.external_window.main_widget.addTab(_hex_widget, "Hex View")
         self.external_window.show()
         
     def pop_dialog__details(self) -> None:
@@ -597,7 +689,6 @@ class UIMainWindow(object):
     def pop_error_dialog(self, exception_text: str) -> None:
         dlg = QDialog()
         
-        QBtn = QDialogButtonBox.Ok
         dlg.setWindowTitle("Oops!")
         
         dlg.layout = QVBoxLayout()
@@ -606,7 +697,39 @@ class UIMainWindow(object):
         dlg.setLayout(dlg.layout)
         
         dlg.exec_()
+        
+    def pop_error_dialog__frame_exceeded(self, packet) -> None:
+        dlg = QDialog()
+        
+        dlg.setWindowTitle("Oops!")
+        QBtn = QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        button_box = QDialogButtonBox(QBtn)
+        
+        message = QLabel("Max frame dimension - 65545 - exceeded\nDo you want to save packet content to a file?\n\nNote: The payload will be saved to a separate file.")
 
+        button_box.accepted.connect(lambda: self.pop_error_dialog__frame_exceeded_accepted(packet, dlg))
+        button_box.rejected.connect(lambda: dlg.close())
+        
+        layout = QVBoxLayout()
+        layout.addWidget(message)
+        layout.addWidget(button_box)
+        dlg.setLayout(layout)
+        
+        dlg.exec_()
+        
+    def pop_error_dialog__frame_exceeded_accepted(self, packet, parent: QDialog) -> None:
+        with open("dump.bin", "wb") as handler:
+            handler.write(packet.show(dump=True).encode("utf-8"))
+            
+            payload = self.packet_processor.get_raw_payload(packet)
+                
+            if payload is not None:
+                with open("dump_load.bin", "wb") as bin_handler:
+                    bin_handler.write(payload)
+        try:
+            parent.close()
+        except Exception as error:
+            self.pop_error_dialog(str(error))
 
 def play():
     ''' time the execution '''
