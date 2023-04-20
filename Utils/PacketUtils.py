@@ -134,6 +134,23 @@ class PacketProcessor(object):
             _t = _t.payload
         
         return tree_model
+
+    @staticmethod
+    def expand_packet(packet: Packet) -> Any:
+        yield packet
+        while packet.payload:
+            packet = packet.payload
+            yield packet
+            
+    @staticmethod
+    def forge_packet(packet: Packet) -> Packet:
+        forged_packet = None
+        try:
+            forged_packet = packet.copy()
+            print(forged_packet)
+            logger.info(f"Created deep copy of packet at {forged_packet.id}")
+        except AttributeError as error:
+            logger.error(str(error))
     
     def get_traffic_outgoing(self) -> Any:
         return lambda packet: packet[Ether].src == self.M_MAC

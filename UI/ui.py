@@ -447,14 +447,45 @@ class UIMainWindow(object):
         
         inner_layout__1 = QGridLayout()
         
-        editable_field_widget = QTextEdit()
-        editable_field_widget.setFont(self.global_font)
-        editable_field_widget.setText(packet.show(dump=True))
+        # editable_field_widget = QTextEdit()
+        # editable_field_widget.setFont(self.global_font)
+        # editable_field_widget.setText(packet.show(dump=True))
+        editable_field_widget = QTabWidget()
+
+        result = list(self.packet_processor.expand_packet(packet))
         
-        try:
-            print(packet.fields_desc)
-        except Exception as exception:
-            self.pop_error_dialog(str(exception))
+        d = dict()
+        
+        for layer in result:
+            _inner = QTextEdit()
+            _inner.setFont(self.global_font)
+            try:
+                # _inner.setText((str(layer.fields_desc)))
+                bldr = ""
+                for field in layer.fields_desc:
+                    bldr = bldr + f"{field.name}={str(layer.getfieldval(field.name))}\n"
+                _inner.setText(bldr)
+            except Exception as exception:
+                self.pop_error_dialog(str(exception))
+                logger.error(str(exception))
+                
+            d[layer.name] = layer.__class__.__name__
+            editable_field_widget.addTab(
+                _inner,
+                f"{layer.name}"
+            )
+        
+        for idx in range(editable_field_widget.count()):
+            _widget: QTextEdit = editable_field_widget.widget(idx)
+            _tab: str = editable_field_widget.tabText(idx)
+            print(f"{_tab}:{d.get(_tab)}")
+            print(_widget.toPlainText())
+    
+        self.packet_processor.forge_packet(packet)            
+        # try:
+        #     print(packet.fields_desc)
+        # except Exception as exception:
+        #     self.pop_error_dialog(str(exception))
         
         _request_label = QLabel("Request")
         _request_label.setFont(self.global_font)
@@ -464,7 +495,9 @@ class UIMainWindow(object):
         _response_label.setFont(self.global_font)
         inner_layout__1.addWidget(_response_label, 1, 3, 1, 1)
         
-        inner_layout__1.addWidget(QPushButton("Send"), 0, 3, 1, 2)
+        _send = QPushButton("Send")
+        _send.clicked.connect(lambda: self.send_packet(packet))
+        inner_layout__1.addWidget(_send, 0, 3, 1, 2)
         
         inner_layout__1.addWidget(editable_field_widget, 2, 0, -1, 2)
         inner_layout__1.addWidget(QTextEdit(), 2, 3, -1, 2)
@@ -472,6 +505,9 @@ class UIMainWindow(object):
         self.external_window.setLayout(inner_layout__1)
         self.external_window.show()
         
+    def send_packet(self, packet):
+        print("Send_packet")
+    
     def pop_external_window__raw(self, packet) -> None:
         try:
             self.external_window.close()
