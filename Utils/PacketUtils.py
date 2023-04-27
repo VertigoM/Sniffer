@@ -20,7 +20,9 @@ logger = logging.getLogger('standard')
 class PacketProcessor(object):
     def __init__(self, _identifier: IANA_Loader.IANA_Loader=None):
         self.identifier = _identifier
-        self.M_MAC      = Ether().src 
+        self.M_MAC      = Ether().src
+        
+        self._ip_tables_rule__DROP = 'iptables %s INPUT -s %s -p tcp --sport %d -j DROP'
     
     # Network layer
     def _solve_l3(self, packet: Packet) -> dict:
@@ -154,7 +156,7 @@ class PacketProcessor(object):
         except AttributeError as error:
             logger.error(str(error))
             
-    def send_packet(self, packet: Packet) -> Packet:
+    def send_packet(self, packet: Packet, _interface) -> Packet:
         """
         Send packet accordingly to its properties.
         If packet is TCP send using _send_r and wait for response or timeout.
@@ -163,20 +165,19 @@ class PacketProcessor(object):
         Else fallback _send_r and wait for timeout or response.
         """
         if TCP not in packet:
-            self._send_leave(packet)
+            return self._send_leave(packet, _interface)
         else:
-            self._send_r(packet)
+            return self._send_r(packet, _interface)
     
-    def _send_leave(self, packet: Packet) -> None:
+    def _send_leave(self, packet: Packet, _interface) -> None:
         """
         Internal function called in send_packet.
         Send packet and don't wait for answer.
         """
     
-    def _send_r(self, packet: Packet, timeout: int=None) -> PacketList:
+    def _send_r(self, packet: Packet, _interface) -> PacketList:
         from scapy.layers.http import (
             HTTPRequest,
-            HTTPResponse,
             TCP_client,
             HTTP
         )
@@ -184,8 +185,6 @@ class PacketProcessor(object):
         Internal function called in send_packet.
         Send packet and wait for answer
         """
-        if timeout is None:
-            timeout = -1
         
         """
         Create iptables in order for the kernel not to drop
@@ -193,57 +192,99 @@ class PacketProcessor(object):
         Check if rule already exists else add it.
         Delete it afterwards.
         """
-        _ip_tables_rule = 'iptables -%c INPUT -s %s -p tcp --sport %d -j DROP'
         
         _port = packet[TCP].dport
+        _iface = _interface
         
         _host = None
         try:
             _host = str(Net(packet[IP].dst))
         except:
             _host = packet[IP].dst
-        _r_added = True
         
-        try:
-            check=run([_ip_tables_rule % ('C', _host, _port)], capture_output=True, shell=True)
-            assert check.returncode == 0
-        except AssertionError as exception:
-            logger.debug(f"Met exception:{check.returncode}::{check.stderr}")
-            logger.info(f"Rule not added, adding rule...")
-            _r_added = False
+        _r_added = self.create_fw_rule('-C', _host, _port)
             
         if not _r_added:
-            try:
-                assert run([_ip_tables_rule % ('A', _host, _port)], capture_output=True, shell=True).returncode == 0
-            except AssertionError as exception:
-                logger.error(f"Error while adding route: {str(exception)}\n ABBORT")
+            if not self.create_fw_rule('-A', _host, _port):
+                logger.error("Failed to add route.")
                 return
                 
         _verbose = True
-        _iface = "wlp4s0"
+        _iface = _interface
         
-        with TCP_client.tcplink(HTTP, _host, _port, debug=_verbose, iface=_iface) as sock:
-            logger.info(f"Sending packet: {packet}")
-            logger.info(f"Details: {_port} {_host}")
-            
+        with self.get_TCP_client(packet, _host, _port, _verbose, _iface) as sock:
+            logger.info(f"Sending packet[s] via {_iface}")
             try:
-                packet = HTTP()/packet[HTTPRequest]
-            except AttributeError as exception:
-                logger.error(exception)
-                
-            packet.show()
-            
-            answer = sock.sr1(packet, session=TCPSession(app=True), timeout=15, verbose=_verbose)
-            try:
-                answer.show()
+                packet = self.rebuild(packet)
             except AttributeError as exception:
                 logger.error(exception)
             
+            try:
+                return sock.sr1(packet, session=TCPSession(app=True), timeout=15, verbose=_verbose)    
+            except AttributeError as exception:
+                logger.error(exception)
+            finally:
+                if not self.create_fw_rule('-D', _host, _port):
+                    logger.error("Failed to remove rule after sending packet.")
+            
+    def create_fw_rule(self,
+                       _rule:str, # --check, --add, --delete
+                       _host:Any, # destination host, either string or Net object
+                       _port:int  # destination port
+    ) -> bool:
+        iptables_rule = self._ip_tables_rule__DROP % (_rule, _host, _port)        
         try:
-            assert run([_ip_tables_rule % ('D', _host, _port)], capture_output=True, shell=True).returncode == 0
+            assert run([iptables_rule], capture_output=True, shell=True).returncode == 0
         except AssertionError as exception:
             logger.error(exception)
-
+            return False
+        return True
+    
+    def get_TCP_client(self,
+                       packet: Packet, 
+                       _host,   # destination host, either string or Net object
+                       _port,   # destination port
+                       _verbose,# debug verbosity level 
+                       _iface) -> Any: # interface via which the packet is sent
+        """
+        Get tcplink sock
+        """
+        args=[_host, _port]
+        
+        kwargs={}
+        kwargs['debug']=_verbose
+        kwargs['iface']=_iface
+        
+        if HTTP in packet:
+            return TCP_client.tcplink(HTTP, *args, **kwargs)
+        elif TCP in packet:
+            return TCP_client.tcplink(TCP, *args, **kwargs)
+        else:
+            return TCP_client.tcplink(Raw, *args, **kwargs)
+        
+    def rebuild(self, packet: Packet) -> Packet:
+        """
+        Rebuild packet in order to be [re]sent
+        """
+        
+        """
+        Simple case - packet is an HTTPRequest
+        
+        Extract HTTPRequest headers and let scapy forge the rest
+        """
+        if HTTPRequest in packet:
+            try:
+                request = packet[HTTPRequest]
+                return HTTP()/request
+            except AttributeError as exception:
+                logger.error(exception)
+                return
+        
+        """
+        More complex case - packet is not an HTTPRequest
+        """
+        return packet
+            
     def get_traffic_outgoing(self) -> Any:
         return lambda packet: packet[Ether].src == self.M_MAC
     

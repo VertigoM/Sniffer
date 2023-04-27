@@ -435,6 +435,9 @@ class UIMainWindow(object):
         menu.exec_(c_pos)
         
     def pop_external_window__forger(self, packet) -> None:
+        """
+        Pop an external window containing send / receive functions
+        """
         try:
             self.external_window.close()
             self.external_window = None
@@ -446,10 +449,6 @@ class UIMainWindow(object):
         self.external_window.setWindowTitle("Repeater")
         
         inner_layout__1 = QGridLayout()
-        
-        # editable_field_widget = QTextEdit()
-        # editable_field_widget.setFont(self.global_font)
-        # editable_field_widget.setText(packet.show(dump=True))
         editable_field_widget = QTabWidget()
 
         result = list(self.packet_processor.expand_packet(packet))
@@ -478,14 +477,8 @@ class UIMainWindow(object):
         for idx in range(editable_field_widget.count()):
             _widget: QTextEdit = editable_field_widget.widget(idx)
             _tab: str = editable_field_widget.tabText(idx)
-            # print(f"{_tab}:{d.get(_tab)}")
-            # print(_widget.toPlainText())
     
         self.packet_processor.forge_packet(packet)            
-        # try:
-        #     print(packet.fields_desc)
-        # except Exception as exception:
-        #     self.pop_error_dialog(str(exception))
         
         _request_label = QLabel("Request")
         _request_label.setFont(self.global_font)
@@ -495,14 +488,11 @@ class UIMainWindow(object):
         _response_label.setFont(self.global_font)
         inner_layout__1.addWidget(_response_label, 1, 3, 1, 1)
         
-        _send = QPushButton("Send")
-        _send.clicked.connect(lambda: self.send_packet(packet))
-        inner_layout__1.addWidget(_send, 0, 3, 1, 2)
         
-        # check if it should be enabled
-        # if packet is TCP - enabled
-        # else mark it as disabled
-        response_field_widget = QTabWidget()
+        _send = QPushButton("Send")
+        response_field_widget = QTextBrowser()
+        _send.clicked.connect(lambda: self.send_packet(packet, response_field_widget))
+        inner_layout__1.addWidget(_send, 0, 3, 1, 2)
         
         inner_layout__1.addWidget(editable_field_widget, 2, 0, -1, 2)
         inner_layout__1.addWidget(response_field_widget, 2, 3, -1, 2)
@@ -510,9 +500,27 @@ class UIMainWindow(object):
         self.external_window.setLayout(inner_layout__1)
         self.external_window.show()
         
-    def send_packet(self, packet):
-        answer = self.packet_processor.send_packet(packet)
-        print(answer)
+    def send_packet(self, packet, parent: QTextBrowser):
+        """
+        Send packet via selected interface.
+        """
+        parent.setEnabled(False)
+        interface = self.shared.managed_dictionary.get('iface')
+        
+        """
+        If interface is either null or loopback enforce selection
+        """
+        if interface is None or interface == 'lo':
+            self.pop_error_dialog("Select interface")
+            return
+        
+        answer = self.packet_processor.send_packet(packet, interface)
+        try:
+            parent.setText(answer.show(dump=True))
+        except AttributeError as exception:
+            logger.error(exception)
+        
+        parent.setEnabled(True)
     
     def pop_external_window__raw(self, packet) -> None:
         try:
