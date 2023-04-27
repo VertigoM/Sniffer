@@ -478,8 +478,8 @@ class UIMainWindow(object):
         for idx in range(editable_field_widget.count()):
             _widget: QTextEdit = editable_field_widget.widget(idx)
             _tab: str = editable_field_widget.tabText(idx)
-            print(f"{_tab}:{d.get(_tab)}")
-            print(_widget.toPlainText())
+            # print(f"{_tab}:{d.get(_tab)}")
+            # print(_widget.toPlainText())
     
         self.packet_processor.forge_packet(packet)            
         # try:
@@ -499,14 +499,20 @@ class UIMainWindow(object):
         _send.clicked.connect(lambda: self.send_packet(packet))
         inner_layout__1.addWidget(_send, 0, 3, 1, 2)
         
+        # check if it should be enabled
+        # if packet is TCP - enabled
+        # else mark it as disabled
+        response_field_widget = QTabWidget()
+        
         inner_layout__1.addWidget(editable_field_widget, 2, 0, -1, 2)
-        inner_layout__1.addWidget(QTextEdit(), 2, 3, -1, 2)
+        inner_layout__1.addWidget(response_field_widget, 2, 3, -1, 2)
         
         self.external_window.setLayout(inner_layout__1)
         self.external_window.show()
         
     def send_packet(self, packet):
-        print("Send_packet")
+        answer = self.packet_processor.send_packet(packet)
+        print(answer)
     
     def pop_external_window__raw(self, packet) -> None:
         try:
