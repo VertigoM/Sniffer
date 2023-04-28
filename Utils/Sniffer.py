@@ -1,5 +1,8 @@
-from scapy.all import *
+from scapy.layers.l2 import Ether
+from scapy.sendrecv import sniff
+from scapy.sessions import TCPSession
 from multiprocessing import Process
+import logging
 
 logger = logging.getLogger('standard')
 
@@ -41,7 +44,7 @@ class Sniffer(object):
             logger.error(f"Sniffer not set up yet:{attributeError}")
             pass
         
-        logger.info("\tSetting up sniffer...")
+        logger.info("Setting up sniffer...")
         cls._setup_process(**kwargs)
         if cls.process is not None:
             cls.process.start()

@@ -14,26 +14,16 @@ from Utils.ProcessingThread import ProcessingThread
 import sys
 import logging
 
+from .ExternalWindow import *
+
+"""
+Get standard logger declared inside main
+"""
 logger = logging.getLogger('standard')
 
 class Table(QTableWidget):
     def new_event(self):
         pass
-
-class ExternalWindow(object):
-    def __init__(self):
-        super().__init__()
-        self.main_widget = QWidget()
-        
-        self.layout = QVBoxLayout(self.main_widget)
-        self.main_widget.setLayout(self.layout)
-        
-    def set_custom_layout(self, _layout):
-        self.layout.parent = None
-        self.main_widget.setLayout = _layout
-        
-    def show(self) -> None:
-        self.main_widget.show()
         
 class UIMainWindow(object):
     def __init__(self):
@@ -409,60 +399,37 @@ class UIMainWindow(object):
         except AttributeError as error:
             logger.debug(f"external_window::forger {str(error)}")
             
-        self.external_window = QWidget()
-        self.external_window.setFixedSize(1000, 800)
-        self.external_window.setWindowTitle("Repeater")
+        self.external_window = ForgerExternalWindow(self.global_font, 
+            lambda: self.send_packet(packet, self.external_window.response_field_widget))
         
-        inner_layout__1 = QGridLayout()
-        editable_field_widget = QTabWidget()
-
         result = list(self.packet_processor.expand_packet(packet))
-        
         d = dict()
         
         for layer in result:
-            _inner = QTextEdit()
-            _inner.setFont(self.global_font)
+            tab = QTextEdit()
+            tab.setFont(self.global_font)
             try:
                 # _inner.setText((str(layer.fields_desc)))
                 bldr = ""
                 for field in layer.fields_desc:
                     bldr = bldr + f"{field.name}={str(layer.getfieldval(field.name))}\n"
-                _inner.setText(bldr)
+                tab.setText(bldr)
             except Exception as exception:
                 self.pop_error_dialog(str(exception))
                 logger.error(str(exception))
                 
             d[layer.name] = layer.__class__.__name__
-            editable_field_widget.addTab(
-                _inner,
+            self.external_window.editable_field_widget.addTab(
+                tab,
                 f"{layer.name}"
             )
         
-        for idx in range(editable_field_widget.count()):
-            _widget: QTextEdit = editable_field_widget.widget(idx)
-            _tab: str = editable_field_widget.tabText(idx)
-    
-        self.packet_processor.forge_packet(packet)            
+        # for idx in range(self.external_window.editable_field_widget.count()):
+        #     _widget: QTextEdit = self.external_window.editable_field_widget.widget(idx)
+        #     _tab: str = self.external_window.editable_field_widget.tabText(idx)
         
-        _request_label = QLabel("Request")
-        _request_label.setFont(self.global_font)
-        inner_layout__1.addWidget(_request_label, 1, 0, 1, 1)
+        # self.packet_processor.forge_packet(packet)
         
-        _response_label = QLabel("Response")
-        _response_label.setFont(self.global_font)
-        inner_layout__1.addWidget(_response_label, 1, 3, 1, 1)
-        
-        
-        _send = QPushButton("Send")
-        response_field_widget = QTextBrowser()
-        _send.clicked.connect(lambda: self.send_packet(packet, response_field_widget))
-        inner_layout__1.addWidget(_send, 0, 3, 1, 2)
-        
-        inner_layout__1.addWidget(editable_field_widget, 2, 0, -1, 2)
-        inner_layout__1.addWidget(response_field_widget, 2, 3, -1, 2)
-        
-        self.external_window.setLayout(inner_layout__1)
         self.external_window.show()
         
     def send_packet(self, packet, parent: QTextBrowser):
@@ -501,10 +468,7 @@ class UIMainWindow(object):
         from struct import error as error_struct
         from scapy.error import Scapy_Exception
         
-        self.external_window = ExternalWindow()
-        self.external_window.main_widget = QTabWidget()
-        self.external_window.main_widget.setFixedSize(800, 600)
-        self.external_window.main_widget.setWindowTitle("Raw")
+        self.external_window = RawContentExternalWindow()
         
         _dump_packet__plain = None
         try:
