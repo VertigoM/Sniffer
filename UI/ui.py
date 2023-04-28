@@ -1,4 +1,3 @@
-from time import sleep
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import (
@@ -11,49 +10,15 @@ from Utils import (
     Sniffer,
     PacketUtils
 )
+from Utils.ProcessingThread import ProcessingThread
 import sys
 import logging
-import errno
 
 logger = logging.getLogger('standard')
 
 class Table(QTableWidget):
     def new_event(self):
         pass
-
-class ProcessingThread(QThread):
-    add_packet = pyqtSignal(list)
-
-    def __init__(
-        self,
-        _managed_queue,
-        _packet_processor: PacketUtils.PacketProcessor=None,
-        _parent=None):
-        QThread.__init__(self, parent=_parent)
-        
-        if _packet_processor is None:
-            self.packet_processor = PacketUtils.PacketProcessor()
-            
-        self.packet_processor = _packet_processor
-        self.managed_queue = _managed_queue
-        self.managed_list = []
-        self.running = True
-
-    def run(self):
-        logger.info("starting ProcessingThread.")
-        while self.running:
-            try:
-                packet = self.managed_queue.get()
-                self.managed_list.append(packet)
-                info = self.packet_processor.info(packet)
-                
-                self.add_packet.emit(info)
-            except IOError as exception:
-                if exception.errno == errno.EPIPE:
-                    logger.error(f"ProcesssingThread::IOError:\n{str(exception)}")
-                continue
-            except EOFError as exception:
-                logger.error(f"ProcessingThread::EOFError:\n{str(exception)}")
 
 class ExternalWindow(object):
     def __init__(self):
@@ -443,7 +408,7 @@ class UIMainWindow(object):
             self.external_window = None
         except AttributeError as error:
             logger.debug(f"external_window::forger {str(error)}")
-        
+            
         self.external_window = QWidget()
         self.external_window.setFixedSize(1000, 800)
         self.external_window.setWindowTitle("Repeater")
@@ -515,12 +480,16 @@ class UIMainWindow(object):
             return
         
         answer = self.packet_processor.send_packet(packet, interface)
+        
+        if answer is None:
+            parent.setText("Response timed out")
+            return
+        
         try:
+            parent.setEnabled(True)
             parent.setText(answer.show(dump=True))
         except AttributeError as exception:
             logger.error(exception)
-        
-        parent.setEnabled(True)
     
     def pop_external_window__raw(self, packet) -> None:
         try:

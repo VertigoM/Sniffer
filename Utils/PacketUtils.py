@@ -1,71 +1,91 @@
-from scapy.all import *
 from scapy.layers.http import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
-import datetime
+from typing import Any
+from scapy.utils import wrpcap
+from scapy.layers.l2 import Ether
+from scapy.layers.inet import IP
+from scapy.layers.inet6 import IPv6
+from scapy.plist import PacketList
+from scapy.sessions import TCPSession
 from Utils import IANA_Loader
 from subprocess import run
+import datetime
+import logging
 
-# list filtering using lambdas
-# list.filter(lambda p: p.haslayer(...))
-# IPv6 -> for ipv6
-# IP   -> for ipv4
-# if packet has ARP layer L3, L4 are not applicable
-# source and destination become MAC addresses
-
+"""
+Get standard logger declared inside main
+"""
 logger = logging.getLogger('standard')
 
-""" class used only for presentation purposes """
 class PacketProcessor(object):
+    """
+    A class to process each packet.
+    Utilities.
+    """
     def __init__(self, _identifier: IANA_Loader.IANA_Loader=None):
         self.identifier = _identifier
-        self.M_MAC      = Ether().src
+        self.M_MAC = Ether().src
         
         self._ip_tables_rule__DROP = 'iptables %s INPUT -s %s -p tcp --sport %d -j DROP'
     
-    # Network layer
-    def _solve_l3(self, packet: Packet) -> dict:
+    def solve_l3(self, packet: Packet) -> dict:
+        """Resolves the network layer
+
+        Args:
+            packet (Packet): _description_
+
+        Returns:
+            dict: dictionary of network layer source and destination
+        """
         # IPv4/IPv6 layer
         if len(packet.layers()) < 2:
             return dict()
         
         # Try get IPv4 src // dst
-        _l3 = dict()
+        l3 = dict()
         try:
-            _l3['src'] = packet.getlayer(IP).src
-            _l3['dst'] = packet.getlayer(IP).dst
+            l3['src'] = packet.getlayer(IP).src
+            l3['dst'] = packet.getlayer(IP).dst
             
-            return _l3
+            return l3
         except:
             # AttributeError
             pass
         
         # Try get IPv6 src // dst
         try:
-            _l3['src'] = packet.getlayer(IPv6).src
-            _l3['dst'] = packet.getlayer(IPv6).dst
+            l3['src'] = packet.getlayer(IPv6).src
+            l3['dst'] = packet.getlayer(IPv6).dst
             
-            return _l3
+            return l3
         except:
             # AttributeError
             pass
         
         # Fallback to Ethernet mac address as source/destination
         try:
-            _l3['src'] = packet.src
-            _l3['dst'] = packet.dst \
+            l3['src'] = packet.src
+            l3['dst'] = packet.dst \
                 if packet.dst != 'ff:ff:ff:ff:ff:ff' \
                 else 'Broadcast'
         except:
             # Attribute Error - packet in malformed
             pass
-        return _l3
+        return l3
         
     
-    # Transport layer
-    def _solve_l4(self, packet: Packet) -> dict:
-        _l4 = dict()
+    def solve_l4(self, packet: Packet) -> dict:
+        """Resolves the transport layer 
+
+        Args:
+            packet (Packet): _description_
+
+        Returns:
+            dict: dictionary of transport layer source port and destination port
+        """
+        l4 = dict()
         try:
             self._l4['sport'] = packet.sport
             self._l4['dport'] = packet.dport
@@ -73,18 +93,16 @@ class PacketProcessor(object):
             # the packet has at least three layers
             # but none of them is part of the OSI transport layer
             pass
-        return _l4
+        return l4
         
         
-    def _solve_protocol(self, packet: Packet) -> string:
-        # try identifying by usint proto number
-        # else take the name of the last layer
-        # try:
-        #     proto = self.packet.proto
-        #     self.protocol = self.identifier.get_protocol(proto)
-        # except:
-        #     pass
-        
+    def solve_protocol(self, packet: Packet) -> str:        
+        """Protocol identification
+
+        Old implementation: IANA numbers
+        Returns:
+            str: protocol of packet
+        """
         temp = packet
         protocol = ''
         while temp:
@@ -95,18 +113,35 @@ class PacketProcessor(object):
         return protocol
     
     @staticmethod
-    def write_pcap(packet_list, path: str = None) -> None:
+    def write_pcap(packet_list: PacketList, path: str=None) -> None:
+        """Write pcap file from PacketList
+
+        Args:
+            packet_list (PacketList): _description_
+            path (str, optional): [path][filename]. Defaults to None.
+        """
         if path is None:
+            """
+            If path is passes as None - save packet_list to saves dir
+            as %current_date {%d%m%Y-%H%M}.pcap
+            """
             current_date = datetime.datetime.now()
             path = f'saves/{current_date.strftime("%d%m%Y-%H%M")}.pcap'
         try:
             wrpcap(path, packet_list)
-        except Exception as e:
-            # TODO - find proper way of error handling
-            print(f"Error while writing to file!::{str(e)}")
+        except Exception as exception:
+            """
+            Old: Find proper way of exception handing
+            """
+            logger.error(exception)
             
     @staticmethod
-    def write_packet_payload_to_file(packet):
+    def write_packet_payload_to_file(packet: Packet) -> None:
+        """Write binary content of packet to .bin file
+
+        Args:
+            packet (Packet): _description_
+        """
         with open("dump.bin", "wb") as handler:
             handler.write(packet.show(dump=True).encode("utf-8"))
             
@@ -117,25 +152,35 @@ class PacketProcessor(object):
                     bin_handler.write(payload)    
             
     @staticmethod
-    def convert_packet_to_node(packet: Packet, font: QFont = QFont('Consolas', 10)) -> QStandardItemModel:
+    def convert_packet_to_node(packet: Packet,
+                               font: QFont = QFont('Consolas', 10)) -> QStandardItemModel:
+        """Convert packet to proper model for being loaded inside a PyQt5::TreeView
+
+        Args:
+            packet (Packet): _description_
+            font (QFont, optional): _description_. Defaults to QFont('Consolas', 10).
+
+        Returns:
+            QStandardItemModel: _description_
+        """
         tree_model = QStandardItemModel()
         root = tree_model.invisibleRootItem()
         
-        _t = packet
-        _parent_node = root
-        while _t.fields_desc:
-            _fields_node = QStandardItem()
-            _fields_node.setFont(font)
-            _fields_node.setText(_t.name)
-            for _f in _t.fields_desc:
-                _field = QStandardItem()
-                _field.setFont(font)
-                _field.setText(f"{_f.name}: {_t.getfieldval(_f.name)}")
-                _fields_node.appendRow(_field)
+        temp = packet
+        parent_node = root
+        while temp.fields_desc:
+            fields_node = QStandardItem()
+            fields_node.setFont(font)
+            fields_node.setText(temp.name)
+            for f in temp.fields_desc:
+                field = QStandardItem()
+                field.setFont(font)
+                field.setText(f"{f.name}: {temp.getfieldval(f.name)}")
+                fields_node.appendRow(field)
                 
-            _parent_node.appendRow(_fields_node)
-            _parent_node = _fields_node
-            _t = _t.payload
+            parent_node.appendRow(fields_node)
+            parent_node = fields_node
+            temp = temp.payload
         
         return tree_model
 
@@ -148,6 +193,16 @@ class PacketProcessor(object):
             
     @staticmethod
     def forge_packet(packet: Packet) -> Packet:
+        """Forge packet in order to fit resending criteria
+        
+        TBD: [NotComplete/Obsolete]
+
+        Args:
+            packet (Packet): _description_
+
+        Returns:
+            Packet: _description_
+        """
         forged_packet = None
         try:
             forged_packet = packet.copy()
@@ -165,22 +220,18 @@ class PacketProcessor(object):
         Else fallback _send_r and wait for timeout or response.
         """
         if TCP not in packet:
-            return self._send_leave(packet, _interface)
+            return self.send_leave(packet, _interface)
         else:
-            return self._send_r(packet, _interface)
+            return self.send_receive(packet, _interface)
     
-    def _send_leave(self, packet: Packet, _interface) -> None:
+    def send_leave(self, packet: Packet, _interface) -> None:
         """
         Internal function called in send_packet.
         Send packet and don't wait for answer.
         """
+        return
     
-    def _send_r(self, packet: Packet, _interface) -> PacketList:
-        from scapy.layers.http import (
-            HTTPRequest,
-            TCP_client,
-            HTTP
-        )
+    def send_receive(self, packet: Packet, _interface) -> PacketList:
         """
         Internal function called in send_packet.
         Send packet and wait for answer
@@ -193,38 +244,47 @@ class PacketProcessor(object):
         Delete it afterwards.
         """
         
-        _port = packet[TCP].dport
-        _iface = _interface
+        port = packet[TCP].dport
+        iface = _interface
         
-        _host = None
-        try:
-            _host = str(Net(packet[IP].dst))
-        except:
-            _host = packet[IP].dst
-        
-        _r_added = self.create_fw_rule('-C', _host, _port)
+        host = None
+        """
+        Check if IPv4 or IPv6
+        """
+        if IP in packet:
+            try:
+                host = str(Net(packet[IP].dst))
+            except:
+                host = packet[IP].dst
+        elif IPv6 in packet:
+            try:
+                host = str(Net(packet[IPv6].dst))
+            except:
+                host = packet[IPv6].dst
+                
+        rule_added = self.create_fw_rule('-C', host, port)
             
-        if not _r_added:
-            if not self.create_fw_rule('-A', _host, _port):
+        if not rule_added:
+            if not self.create_fw_rule('-A', host, port):
                 logger.error("Failed to add route.")
                 return
                 
-        _verbose = True
-        _iface = _interface
+        verbose = True
+        iface = _interface
         
-        with self.get_TCP_client(packet, _host, _port, _verbose, _iface) as sock:
-            logger.info(f"Sending packet[s] via {_iface}")
+        with self.get_TCP_client(packet, host, port, verbose, iface) as sock:
+            logger.info(f"Sending packet[s] via {iface}")
             try:
                 packet = self.rebuild(packet)
             except AttributeError as exception:
                 logger.error(exception)
             
             try:
-                return sock.sr1(packet, session=TCPSession(app=True), timeout=15, verbose=_verbose)    
+                return sock.sr1(packet, session=TCPSession(app=True), timeout=5, verbose=verbose)    
             except AttributeError as exception:
                 logger.error(exception)
             finally:
-                if not self.create_fw_rule('-D', _host, _port):
+                if not self.create_fw_rule('-D', host, port):
                     logger.error("Failed to remove rule after sending packet.")
             
     def create_fw_rule(self,
@@ -232,6 +292,16 @@ class PacketProcessor(object):
                        _host:Any, # destination host, either string or Net object
                        _port:int  # destination port
     ) -> bool:
+        """Create iptables rule
+
+        Args:
+            _rule (str): string ready to be formatted to proper iptables rule
+            _host (Any): _description_
+            _port (int): _description_
+
+        Returns:
+            bool: Status of rule creation
+        """
         iptables_rule = self._ip_tables_rule__DROP % (_rule, _host, _port)        
         try:
             assert run([iptables_rule], capture_output=True, shell=True).returncode == 0
@@ -306,37 +376,37 @@ class PacketProcessor(object):
     def check_outgoing(self, packet) -> bool:
         return packet[Ether].src == self.M_MAC
         
-    def info(self, packet) -> list:
-        # ------- Check data-link layer -------
-        # self._solve_l2()
+    def info(self, packet: Packet) -> list:
+        """Get basic information from packet
+
+        Args:
+            packet (Packet): _description_
+
+        Returns:
+            list: packet information
+        """
+        l3 = self.solve_l3(packet)
+        l4 = self.solve_l4(packet)
+        protocol = self.solve_protocol(packet)
         
-        # ------- Check network layer -------
-        l3 = self._solve_l3(packet)
-        
-        # ------- Check transport layer -------
-        l4 = self._solve_l4(packet)
-        
-        # ------- Solve protocol -------
-        protocol = self._solve_protocol(packet)
-        
-        time     = packet.time
+        time = packet.time
 
 
         if l4.get('sport') is not None:
-            _sport = f":{l4.get('sport')}"
+            sport = f":{l4.get('sport')}"
         else:
-            _sport = ""
+            sport = ""
             
         if l4.get('dport') is not None:
-            _dport = f":{l4.get('dport')}"
+            dport = f":{l4.get('dport')}"
         else:
-            _dport = ""
+            dport = ""
         
-        source   = l3.get("src") + _sport
-        dst      = l3.get("dst") + _dport
+        source = l3.get("src") + sport
+        dst = l3.get("dst") + dport
         try:
-            length   = len(packet)
+            length = len(packet)
         except:
-            length   = "Max frame dimension - 65535 - exceeded"
-        info     = packet.mysummary()
+            length = "Max frame dimension - 65535 - exceeded"
+        info = packet.mysummary()
         return [time, source, dst, length, protocol, info]
