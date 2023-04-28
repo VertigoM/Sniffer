@@ -14,16 +14,13 @@ from Utils.ProcessingThread import ProcessingThread
 import sys
 import logging
 
-from .ExternalWindow import *
+from . ExternalWindow import *
+from . PacketTable import PacketTable
 
 """
 Get standard logger declared inside main
 """
 logger = logging.getLogger('standard')
-
-class Table(QTableWidget):
-    def new_event(self):
-        pass
         
 class UIMainWindow(object):
     def __init__(self):
@@ -226,24 +223,8 @@ class UIMainWindow(object):
 
         return hbox_layout
 
-    def create_packet_list_table(self) -> Table:
-        self.packet_list_table = Table(self.__central_widget)
-        self.packet_list_table.verticalHeader().setDefaultSectionSize(25)
-        self.packet_list_table.horizontalHeader().setFont(self.global_font)
-        self.packet_list_table.setSizeAdjustPolicy(
-            QAbstractScrollArea.AdjustToContents
-        )
-        self.packet_list_table.setMinimumHeight(450)
-        self.packet_list_table.setMaximumHeight(450)
-        self.packet_list_table.setAutoScroll(False)
-        
-        self.packet_list_table.setColumnCount(6)
-        [self.packet_list_table.setColumnWidth(i, 175) for i in range(1, 5)]
-        self.packet_list_table.setColumnWidth(0, 50)
-        self.packet_list_table.setColumnWidth(5, 425)
-
-        self.packet_list_table.setHorizontalHeaderLabels(
-            [
+    def create_packet_list_table(self) -> PacketTable:
+        horizontal_header_labels = [
                 'Time',
                 'Source address',
                 'Destination address',
@@ -251,43 +232,31 @@ class UIMainWindow(object):
                 'Protocol',
                 'Info'
             ]
+        self.packet_list_table = PacketTable(
+            self.__central_widget,
+            25,
+            self.global_font,
+            450,
+            450,
+            6,
+            175,
+            50,
+            425,
+            horizontal_header_labels,
+            QTableView.SelectRows,
+            QTableWidget.NoEditTriggers
         )
-        self.packet_list_table.setSelectionBehavior(QTableView.SelectRows)
-        self.packet_list_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        #self.packet_list_table.itemSelectionChanged.connect(self.selection_event)
 
     def selection_event(self):
+        """
+        Event triggered on packet_list_table row selection
+        """
         QCoreApplication.processEvents()
-        
-        select_from = None
-        if self.live_sniffing:
-            _l0 = len(self.processing_thread.managed_list)
-            _l1 = len(self.shared.packet_record)
-            logger.info(f"Syncing:\n\tprocessing_thread.managed_list: {_l0} packets" +
-                        f"\n\tshared.packet_record: {_l1} packets" + 
-                        f'\n\t{_l0 - _l1} packets added.')
-            self.shared.sync_shared(self.processing_thread.managed_list)
-            select_from = self.shared.packet_record
-        else:
-            select_from = self.shared.packet_record_filtered
-        
-        row = 0
-        try:
-            row = [item.row() for item in self.packet_list_table.selectedItems()][0]
-        except IndexError as exception:
-            logger.error(f"Selected:{self.packet_list_table.selectedItems()}\n\t{str(exception)}")
-            return
-        
-        index = len(select_from) - row - 1
-        
-        packet = None
-        try:
-            packet = select_from[index]
-        except IndexError as error:
-            logger.error(f"Selected packet: {index}\n\t{str(error)}")
-        
-        logger.info(f"Selected packet: {index}\n\t{packet}")
-        return packet
+        return self.packet_list_table.item_selection_event(
+            self.live_sniffing,
+            self.shared,
+            self.processing_thread
+        )
             
     def create_tree_view(self, packet):
         
@@ -470,9 +439,9 @@ class UIMainWindow(object):
         
         self.external_window = RawContentExternalWindow()
         
-        _dump_packet__plain = None
+        dump_packet__plain = None
         try:
-            _dump_packet__plain = packet.show(dump=True)
+            dump_packet__plain = packet.show(dump=True)
         except error_struct as error:
             self.pop_error_dialog__frame_exceeded(packet)
             logger.error(str(error))
@@ -480,14 +449,14 @@ class UIMainWindow(object):
             logger.error(str(error))
             self.pop_error_dialog(str(error))
             
-        if _dump_packet__plain is None:
+        if dump_packet__plain is None:
             return
             
         from scapy.utils import hexdump
         
-        _dump_packet__hex = None
+        dump_packet_hex = None
         try:
-            _dump_packet__hex = hexdump(packet, dump=True)
+            dump_packet_hex = hexdump(packet, dump=True)
         except error_struct as error:
             self.pop_error_dialog__frame_exceeded(packet)
             logger.error(str(error))
@@ -495,22 +464,19 @@ class UIMainWindow(object):
             logger.error(str(error))
             self.pop_error_dialog(str(error))
             
-        if _dump_packet__hex is None:
+        if dump_packet_hex is None:
             return
         
-        _raw_widget = QTextBrowser()
-        _raw_widget.setText(_dump_packet__plain)
-        _raw_widget.setFont(self.global_font)
-        self.external_window.main_widget.addTab(_raw_widget, "Raw View")
+        raw_widget = QTextBrowser()
+        raw_widget.setText(dump_packet__plain)
+        raw_widget.setFont(self.global_font)
+        self.external_window.main_widget.addTab(raw_widget, "Raw View")
         
-        _hex_widget = QTextBrowser()
-        _hex_widget.setText(_dump_packet__hex)
-        _hex_widget.setFont(self.global_font)
-        self.external_window.main_widget.addTab(_hex_widget, "Hex View")
+        hex_widget = QTextBrowser()
+        hex_widget.setText(dump_packet_hex)
+        hex_widget.setFont(self.global_font)
+        self.external_window.main_widget.addTab(hex_widget, "Hex View")
         self.external_window.show()
-        
-    def pop_dialog__details(self) -> None:
-        dialog = QDialog()
     
     def validate_filter(self):
         from scapy.arch.common import compile_filter

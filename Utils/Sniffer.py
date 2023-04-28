@@ -4,13 +4,15 @@ from scapy.sessions import TCPSession
 from multiprocessing import Process
 import logging
 
+"""
+Get standard logger declared inside main
+"""
 logger = logging.getLogger('standard')
 
 class Sniffer(object):
-    # def __init__(self, *args, **kwargs):
-    #     self.args = args
-    #     self.kwargs = kwargs
-    #     self.process: Process = None
+    """
+    Class responsable for the sniffing process
+    """
     def __new__(cls):
         if not hasattr(cls, 'instance'):
             cls.instance = super(Sniffer, cls).__new__(cls)
@@ -19,7 +21,8 @@ class Sniffer(object):
             cls.M_MAC = Ether().src
         return cls.instance
 
-    """Setup wrapper over a multiprocessing Process which
+    """
+    Setup wrapper over a multiprocessing Process which
     can be started/stopped programatically via start & stop functions
     """
     @classmethod

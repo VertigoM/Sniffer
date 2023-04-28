@@ -286,7 +286,7 @@ class PacketProcessor(object):
                 logger.error(exception)
             
             try:
-                return sock.sr1(packet, session=TCPSession(app=True), timeout=5, verbose=verbose)    
+                return sock.sr1(packet, session=TCPSession(app=True), timeout=10, verbose=verbose)    
             except AttributeError as exception:
                 logger.error(exception)
             finally:
