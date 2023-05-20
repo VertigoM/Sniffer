@@ -348,11 +348,11 @@ class UIMainWindow(object):
         menu = QMenu()
         
         _details = QAction("Details")
-        _details.triggered.connect(lambda t: print("Handle::triggered::details"))
+        _details.triggered.connect(lambda: print("Handle::triggered::details"))
         menu.addAction(_details)
         
         _extract_content = QAction("Extract content")
-        _extract_content.triggered.connect(lambda t: print("Handle::triggered::extract_content"))
+        _extract_content.triggered.connect(lambda: print("Handle::triggered::extract_content"))
         menu.addAction(_extract_content)
         
         c_pos = QCursor.pos()

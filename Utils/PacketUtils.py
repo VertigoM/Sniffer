@@ -224,6 +224,9 @@ class PacketProcessor(object):
         If packet is UPD sned using _send_leave.
         
         Else fallback _send_r and wait for timeout or response.
+        
+        TODO: add better support, check
+        which family function to use, send[p]
         """
         if TCP not in packet:
             return self.send_leave(packet, _interface)
